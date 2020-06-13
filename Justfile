@@ -30,6 +30,9 @@ web:
 		--target web \
 		--no-typescript
 
+bake:
+	cargo run --bin bake --release
+
 doc crate:
 	cargo doc \
 		--no-deps \

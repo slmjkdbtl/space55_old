@@ -73,6 +73,34 @@ struct App {
 
 impl App {
 
+	fn cur_path(&self) -> &Path {
+		return match self.view {
+			View::Buffer => {
+				return self.cur_buf()
+					.map(|buf| buf.path())
+					.flatten()
+					.unwrap_or(self.browser.path());
+			},
+			View::Browser => {
+				return self.browser.path();
+			},
+		}
+	}
+
+	fn cur_buf(&self) -> Option<&Box<dyn Buffer>> {
+		if let Some(id) = self.cur_buf {
+			return self.buffers.get(&id);
+		}
+		return None;
+	}
+
+	fn cur_buf_mut(&mut self) -> Option<&mut Box<dyn Buffer>> {
+		if let Some(id) = self.cur_buf {
+			return self.buffers.get_mut(&id);
+		}
+		return None;
+	}
+
 	fn to_buf(&mut self, id: ID) {
 		self.view = View::Buffer;
 		self.cur_buf = Some(id);
@@ -158,7 +186,9 @@ impl State for App {
 
 		match self.view {
 			View::Buffer => {
-				// ...
+				if let Some(buf) = self.cur_buf_mut() {
+					buf.event(d, e)?;
+				}
 			},
 			View::Browser => {
 				match e {
@@ -199,8 +229,20 @@ impl State for App {
 	}
 
 	fn update(&mut self, d: &mut Ctx) -> Result<()> {
-		self.browser.update(d)?;
+
+		match self.view {
+			View::Buffer => {
+				if let Some(buf) = self.cur_buf_mut() {
+					buf.update(d)?;
+				}
+			},
+			View::Browser => {
+				self.browser.update(d)?;
+			},
+		}
+
 		return Ok(());
+
 	}
 
 	fn draw(&mut self, d: &mut Ctx) -> Result<()> {
@@ -227,7 +269,7 @@ impl State for App {
 				mat4!()
 					.t2(vec2!(SBAR_PADDING.x, -SBAR_PADDING.y))
 					,
-				&shapes::text(&format!("{}", display_path(self.browser.path())))
+				&shapes::text(&format!("{}", display_path(self.cur_path())))
 					.size(SBAR_FONT_SIZE)
 					.align(Origin::TopLeft)
 					,

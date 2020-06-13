@@ -5,6 +5,7 @@ name = "fopen"
 version = "0.0.0"
 authors = ["tga <tga@enemyspy.xyz>"]
 edition = "2018"
+default-run = "fopen"
 
 [profile.release]
 panic = "abort"
@@ -14,4 +15,5 @@ dirty = { path = "../DIRTY" }
 rayon = "1.3"
 syntect = "4.0"
 dirs-next = "1.0"
+once_cell = "1.2"
 

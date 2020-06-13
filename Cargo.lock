@@ -542,6 +542,7 @@ version = "0.0.0"
 dependencies = [
  "dirs-next",
  "dirty",
+ "once_cell",
  "rayon",
  "syntect",
 ]
