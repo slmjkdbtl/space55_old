@@ -224,6 +224,10 @@ impl Buffer for TextBuf {
 		self.view_size = Some((w, h));
 	}
 
+	fn busy(&self) -> bool {
+		return self.mode == Mode::Insert;
+	}
+
 	fn event(&mut self, d: &mut Ctx, e: &input::Event) -> Result<()> {
 
 		let (vw, vh) = self.view_size.unwrap_or((d.gfx.width() as f32, d.gfx.height() as f32));

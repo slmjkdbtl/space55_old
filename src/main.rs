@@ -2,9 +2,11 @@
 
 mod browse;
 mod bufs;
+mod data;
 
 use browse::*;
 use bufs::*;
+use data::*;
 
 use std::path::Path;
 use std::collections::BTreeMap;
@@ -17,6 +19,9 @@ use gfx::*;
 use input::*;
 
 type ID = usize;
+
+const PROJ: &str = "fopen";
+const ENTRY: &str = "save";
 
 const SBAR_FONT_SIZE: f32 = 12.0;
 const SBAR_COLOR: Color = rgba!(0, 0, 1, 1);
@@ -56,6 +61,9 @@ trait Buffer: 'static {
 	}
 	fn draw(&self, _: &mut Gfx) -> Result<()> {
 		return Ok(());
+	}
+	fn busy(&self) -> bool {
+		return false;
 	}
 	fn set_active(&mut self, _: bool) {}
 	fn set_view_size(&mut self, _: f32, _: f32) {}
@@ -104,6 +112,56 @@ impl App {
 	fn to_buf(&mut self, id: ID) {
 		self.view = View::Buffer;
 		self.cur_buf = Some(id);
+	}
+
+	fn to_buf_n(&mut self, n: usize) {
+
+		let ids = self.buffers.keys();
+
+		if let Some(id) = ids.skip(n).next() {
+			self.to_buf(*id);
+		}
+
+	}
+
+	fn to_prev_buf(&mut self) {
+
+		if let Some(id) = self.cur_buf {
+			let n = self.buffers
+				.iter()
+				.enumerate()
+				.position(|(i, (idd, buf))| *idd == id);
+			if let Some(n) = n {
+				if n > 0 {
+					self.to_buf_n(n - 1);
+				} else {
+					self.to_buf_n(self.buffers.len() - 1);
+				}
+			}
+		} else {
+			self.cur_buf = self.buffers.keys().rev().next().cloned();
+		}
+
+	}
+
+	fn to_next_buf(&mut self) {
+
+		if let Some(id) = self.cur_buf {
+			let n = self.buffers
+				.iter()
+				.enumerate()
+				.position(|(i, (idd, buf))| *idd == id);
+			if let Some(n) = n {
+				if n < self.buffers.len() - 1 {
+					self.to_buf_n(n + 1);
+				} else {
+					self.to_buf_n(0);
+				}
+			}
+		} else {
+			self.cur_buf = self.buffers.keys().next().cloned();
+		}
+
 	}
 
 	fn new_buf(&mut self, mut b: impl Buffer) {
@@ -211,12 +269,39 @@ impl State for App {
 		match e {
 			Event::KeyPress(k) => {
 				match k {
+					Key::Key1 if kmods.alt => self.to_buf_n(0),
+					Key::Key2 if kmods.alt => self.to_buf_n(1),
+					Key::Key3 if kmods.alt => self.to_buf_n(2),
+					Key::Key4 if kmods.alt => self.to_buf_n(3),
+					Key::Key5 if kmods.alt => self.to_buf_n(4),
+					Key::Key6 if kmods.alt => self.to_buf_n(5),
+					Key::Key7 if kmods.alt => self.to_buf_n(6),
+					Key::Key8 if kmods.alt => self.to_buf_n(7),
+					Key::Key9 if kmods.alt => self.to_buf_n(8),
+					Key::Left if kmods.alt => self.to_prev_buf(),
+					Key::Right if kmods.alt => self.to_next_buf(),
 					Key::Q if kmods.meta => d.window.quit(),
 					Key::F if kmods.meta => d.window.toggle_fullscreen(),
 					Key::Tab => {
 						self.view = match self.view {
-							View::Buffer => View::Browser,
-							View::Browser => View::Buffer,
+							View::Buffer => {
+								if let Some(buf) = self.cur_buf() {
+									if buf.busy() {
+										View::Buffer
+									} else {
+										View::Browser
+									}
+								} else {
+									View::Browser
+								}
+							},
+							View::Browser => {
+								if self.cur_buf().is_some() {
+									View::Buffer
+								} else {
+									View::Browser
+								}
+							},
 						};
 					},
 					_ => {},
