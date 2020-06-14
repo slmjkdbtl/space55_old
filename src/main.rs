@@ -3,10 +3,12 @@
 mod browse;
 mod bufs;
 mod data;
+mod term;
 
 use browse::*;
 use bufs::*;
 use data::*;
+use term::*;
 
 use std::path::Path;
 use std::collections::BTreeMap;
@@ -38,6 +40,7 @@ const BUFBAR_HEIGHT: f32 = BUFBAR_FONT_SIZE + BUFBAR_PADDING.y * 2.0;
 enum View {
 	Browser,
 	Buffer,
+	Term,
 }
 
 trait Buffer: 'static {
@@ -72,6 +75,7 @@ trait Buffer: 'static {
 
 struct App {
 	browser: FileBrowser,
+	term: Term,
 	view: View,
 	buffers: BTreeMap<ID, Box<dyn Buffer>>,
 	last_buf_id: ID,
@@ -90,6 +94,9 @@ impl App {
 					.unwrap_or(self.browser.path());
 			},
 			View::Browser => {
+				return self.browser.path();
+			},
+			View::Term => {
 				return self.browser.path();
 			},
 		}
@@ -259,6 +266,7 @@ impl State for App {
 	fn init(_: &mut Ctx) -> Result<Self> {
 		return Ok(Self {
 			browser: FileBrowser::new(std::env::current_dir().map_err(|_| format!("failed to get current dir"))?)?,
+			term: Term::new(),
 			view: View::Browser,
 			buffers: bmap![],
 			last_buf_id: 0,
@@ -302,6 +310,9 @@ impl State for App {
 				}
 				self.browser.event(d, e)?;
 			},
+			View::Term => {
+				self.term.event(d, e)?;
+			},
 		}
 
 		match e {
@@ -340,6 +351,7 @@ impl State for App {
 									View::Browser
 								}
 							},
+							View::Term => View::Term,
 						};
 					},
 					_ => {},
@@ -359,9 +371,8 @@ impl State for App {
 					buf.update(d)?;
 				}
 			},
-			View::Browser => {
-				self.browser.update(d)?;
-			},
+			View::Browser => self.browser.update(d)?,
+			View::Term => self.term.update(d)?,
 		}
 
 		return Ok(());
@@ -482,6 +493,10 @@ impl State for App {
 				View::Browser => {
 					self.browser.set_view_size(gw, gh - y);
 					self.browser.draw(gfx)?;
+				},
+				View::Term => {
+					self.term.set_view_size(gw, gh - y);
+					self.term.draw(gfx)?;
 				},
 			}
 

@@ -3,6 +3,7 @@
 use std::io::Cursor;
 use std::path::Path;
 use std::path::PathBuf;
+use std::collections::HashMap;
 
 use crate::*;
 use kit::textedit::TextArea;
@@ -23,6 +24,16 @@ const LINE_HEIGHT: f32 = FONT_SIZE + LINE_SPACING;
 
 static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(|| {
 	return syntect::dumps::from_binary(include_bytes!("syntaxset.pack"));
+});
+
+static WRAP_CHARS: Lazy<HashMap<char, char>> = Lazy::new(|| {
+	return hmap![
+		'(' => ')',
+		'[' => ']',
+		'{' => '}',
+		'"' => '"',
+		'\'' => '\'',
+	];
 });
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -297,24 +308,37 @@ impl Buffer for TextEditor {
 						}
 					},
 					Mode::Insert => {
+
 						match k {
+
 							Key::Backspace => {
+
 								if kmods.alt {
 									self.buf.del_word();
 									self.highlight_all();
 								} else {
+
+									if let Some(cur_char) = self.buf.cur_char() {
+										if let Some(_) = WRAP_CHARS.get(&cur_char) {
+											self.buf.move_right();
+											self.buf.del();
+										}
+									}
+
 									self.buf.del();
 									self.highlight_all();
+
 								}
+
 							},
+
 							Key::Enter => {
 								self.buf.break_line();
+								// TODO: indent
 								self.highlight_all();
 							},
 							Key::Left => self.buf.move_left(),
 							Key::Right => self.buf.move_right(),
-							Key::Up => self.buf.move_up(),
-							Key::Down => self.buf.move_down(),
 							Key::Tab => {
 								self.buf.insert('\t');
 								self.highlight_all();
@@ -327,8 +351,11 @@ impl Buffer for TextEditor {
 			},
 
 			Event::CharInput(ch) => {
+
 				match self.mode {
+
 					Mode::Normal => {
+
 						match ch {
 							'<' => {
 								self.buf.move_line_start();
@@ -340,12 +367,24 @@ impl Buffer for TextEditor {
 							},
 							_ => {},
 						}
-					}
-					Mode::Insert => {
-						self.buf.insert(*ch);
-						self.highlight_all();
+
 					},
+
+					Mode::Insert => {
+
+						self.buf.insert(*ch);
+
+						if let Some(wch) = WRAP_CHARS.get(ch) {
+							self.buf.insert(*wch);
+							self.buf.move_left();
+						}
+
+						self.highlight_all();
+
+					},
+
 				}
+
 			}
 
 			Event::Wheel(d, _) => {
