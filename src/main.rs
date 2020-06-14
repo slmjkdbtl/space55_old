@@ -53,6 +53,9 @@ trait Buffer: 'static {
 		}
 		return String::new();
 	}
+	fn modified(&self) -> bool {
+		return false;
+	}
 	fn path(&self) -> Option<&Path> {
 		return None;
 	}
@@ -449,11 +452,17 @@ impl State for App {
 							p2,
 							|gfx| {
 
+							let title = if b.modified() {
+								format!("{} [~]", b.title())
+							} else {
+								b.title()
+							};
+
 							gfx.draw_t(
 								mat4!()
 									.t2(BUFBAR_PADDING * vec2!(1, -1))
 									,
-								&shapes::text(&b.title())
+								&shapes::text(&title)
 									.size(BUFBAR_FONT_SIZE)
 									.align(Origin::TopLeft)
 							)?;

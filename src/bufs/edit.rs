@@ -172,7 +172,8 @@ impl TextEditor {
 
 	}
 
-	pub fn save(&self) -> Result<()> {
+	pub fn save(&mut self) -> Result<()> {
+		self.buf.clear_modified();
 		return std::fs::write(&self.path, self.buf.content())
 			.map_err(|_| format!("failed to write to {}", self.path.display()));
 	}
@@ -231,6 +232,10 @@ impl Buffer for TextEditor {
 		return Some(&self.path);
 	}
 
+	fn modified(&self) -> bool {
+		return self.buf.modified();
+	}
+
 	fn set_view_size(&mut self, w: f32, h: f32) {
 		self.view_size = Some((w, h));
 	}
@@ -272,6 +277,7 @@ impl Buffer for TextEditor {
 				match self.mode {
 					Mode::Normal => {
 						match *k {
+							Key::W => self.save()?,
 							Key::K => self.buf.move_up(),
 							Key::J => self.buf.move_down(),
 							Key::H => {
@@ -333,10 +339,51 @@ impl Buffer for TextEditor {
 							},
 
 							Key::Enter => {
+
+								let line = self.buf.get_line().cloned();
+								let cursor = self.buf.cursor();
+
 								self.buf.break_line();
-								// TODO: indent
+
+								let mut level = 0;
+
+								if let Some(cur_line) = line {
+
+									for ch in cur_line.chars() {
+										if ch == '\t' {
+											level += 1;
+										} else {
+											break;
+										}
+									}
+
+									let mut chars = cur_line
+										.chars()
+										.skip((cursor.col - 2) as usize);
+
+									if let Some(ch) = chars.next() {
+										if let Some(wch) = WRAP_CHARS.get(&ch) {
+											level += 1;
+											if Some(*wch) == chars.next() {
+												self.buf.break_line();
+												for _ in 0..level - 1 {
+													self.buf.insert('\t');
+												}
+												self.buf.move_up();
+											}
+										}
+									}
+
+								}
+
+								for _ in 0..level {
+									self.buf.insert('\t');
+								}
+
 								self.highlight_all();
+
 							},
+
 							Key::Left => self.buf.move_left(),
 							Key::Right => self.buf.move_right(),
 							Key::Tab => {
