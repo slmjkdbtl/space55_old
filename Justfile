@@ -10,6 +10,9 @@ check:
 run +args="":
 	cargo run --release -- {{args}}
 
+build:
+	cargo build --release
+
 macos:
 	rm -rf dist/{{name}}.app
 	rm -rf dist/{{name}}_v{{version}}_mac.tar.gz

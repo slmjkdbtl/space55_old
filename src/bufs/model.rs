@@ -134,7 +134,7 @@ impl Buffer for ModelViewer {
 
 		if let Some(data) = self.task.poll() {
 			if let Ok(data) = data {
-				self.model = Some(Model::from_data(d.gfx, data)?);
+				self.model = Model::from_data(d.gfx, data).ok();
 			}
 		}
 

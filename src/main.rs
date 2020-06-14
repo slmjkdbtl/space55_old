@@ -72,6 +72,10 @@ trait Buffer: 'static {
 	fn busy(&self) -> bool {
 		return false;
 	}
+	fn closable(&self) -> bool {
+		return true;
+	}
+	fn close(&mut self) {}
 	fn set_active(&mut self, _: bool) {}
 	fn set_view_size(&mut self, _: f32, _: f32) {}
 
@@ -179,6 +183,13 @@ impl App {
 
 	fn close_buf(&mut self, id: ID) {
 
+		if let Some(buf) = self.buffers.get_mut(&id) {
+			if !buf.closable() {
+				return;
+			}
+			buf.close();
+		}
+
 		if Some(id) == self.cur_buf {
 			if let Some(n) = self.get_buf_n(id) {
 				if n > 0 {
@@ -243,7 +254,7 @@ impl App {
 				"mp3"
 				| "ogg"
 				| "wav"
-				=> return Ok(self.new_buf(MusicBuf::new(path))),
+				=> return Ok(self.new_buf(MusicPlayer::new(path)?)),
 
 				"blend"
 				| "ase"

@@ -36,6 +36,14 @@ static WRAP_CHARS: Lazy<HashMap<char, char>> = Lazy::new(|| {
 	];
 });
 
+static SCOPE_CHARS: Lazy<HashMap<char, char>> = Lazy::new(|| {
+	return hmap![
+		'(' => ')',
+		'[' => ']',
+		'{' => '}',
+	];
+});
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Mode {
 	Normal,
@@ -244,6 +252,10 @@ impl Buffer for TextEditor {
 		return self.mode == Mode::Insert;
 	}
 
+	fn closable(&self) -> bool {
+		return !self.buf.modified();
+	}
+
 	fn event(&mut self, d: &mut Ctx, e: &input::Event) -> Result<()> {
 
 		let (vw, vh) = self.view_size.unwrap_or((d.gfx.width() as f32, d.gfx.height() as f32));
@@ -362,7 +374,7 @@ impl Buffer for TextEditor {
 										.skip((cursor.col - 2) as usize);
 
 									if let Some(ch) = chars.next() {
-										if let Some(wch) = WRAP_CHARS.get(&ch) {
+										if let Some(wch) = SCOPE_CHARS.get(&ch) {
 											level += 1;
 											if Some(*wch) == chars.next() {
 												self.buf.break_line();
@@ -521,7 +533,7 @@ impl Buffer for TextEditor {
 						gfx.draw(
 							&shapes::rect(
 								pos + vec2!(0, -y + padding),
-								pos + vec2!(3, -y - FONT_SIZE - padding)
+								pos + vec2!(12.0, -y - FONT_SIZE - padding)
 							)
 								.fill(color)
 								,
