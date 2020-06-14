@@ -2,15 +2,16 @@
 
 mod browse;
 mod bufs;
-mod data;
+mod save;
 mod term;
 
 use browse::*;
 use bufs::*;
-use data::*;
+use save::*;
 use term::*;
 
 use std::path::Path;
+use std::path::PathBuf;
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::process::Stdio;
@@ -84,6 +85,7 @@ struct App {
 	last_buf_id: ID,
 	cur_buf: Option<ID>,
 	bufbar_offset: f32,
+	bookmarks: BTreeMap<ID, PathBuf>,
 }
 
 impl App {
@@ -262,13 +264,39 @@ impl App {
 
 	}
 
+	fn add_bookmark(&mut self, slot: ID, path: impl AsRef<Path>) {
+		self.bookmarks.insert(slot, path.as_ref().to_path_buf());
+	}
+
+	fn to_bookmark(&mut self, n: ID) {
+		if let Some(path) = self.bookmarks.get(&n) {
+			self.browser.cd(&path.clone());
+			self.view = View::Browser;
+		}
+	}
+
 }
 
 impl State for App {
 
 	fn init(_: &mut Ctx) -> Result<Self> {
+
+		let path = std::env::current_dir()
+			.map_err(|_| format!("failed to get current path"))?;
+		let data = data::load::<SaveData>(PROJ, ENTRY);
+
+		if data.is_err() {
+			data::save(PROJ, ENTRY, SaveData {
+				path: path.clone(),
+				bookmarks: bmap![],
+			})?;
+		}
+
+		let data = data::load::<SaveData>(PROJ, ENTRY)?;
+
 		return Ok(Self {
-			browser: FileBrowser::new(std::env::current_dir().map_err(|_| format!("failed to get current dir"))?)?,
+			bookmarks: data.bookmarks,
+			browser: FileBrowser::new(data.path)?,
 			term: Term::new(),
 			view: View::Browser,
 			buffers: bmap![],
@@ -276,6 +304,7 @@ impl State for App {
 			cur_buf: None,
 			bufbar_offset: 0.0,
 		});
+
 	}
 
 	fn event(&mut self, d: &mut Ctx, e: &input::Event) -> Result<()> {
@@ -318,6 +347,8 @@ impl State for App {
 			},
 		}
 
+		let path = self.browser.path().to_path_buf();
+
 		match e {
 			Event::KeyPress(k) => {
 				match k {
@@ -332,6 +363,26 @@ impl State for App {
 					Key::Key9 if kmods.alt => self.to_buf_n(8),
 					Key::Q if kmods.alt => self.to_prev_buf(),
 					Key::E if kmods.alt => self.to_next_buf(),
+					Key::F1 if kmods.alt => self.add_bookmark(0, &path),
+					Key::F2 if kmods.alt => self.add_bookmark(1, &path),
+					Key::F3 if kmods.alt => self.add_bookmark(2, &path),
+					Key::F4 if kmods.alt => self.add_bookmark(3, &path),
+					Key::F5 if kmods.alt => self.add_bookmark(4, &path),
+					Key::F6 if kmods.alt => self.add_bookmark(5, &path),
+					Key::F7 if kmods.alt => self.add_bookmark(6, &path),
+					Key::F8 if kmods.alt => self.add_bookmark(7, &path),
+					Key::F9 if kmods.alt => self.add_bookmark(8, &path),
+					Key::F10 if kmods.alt => self.add_bookmark(9, &path),
+					Key::F1 => self.to_bookmark(0),
+					Key::F2 => self.to_bookmark(1),
+					Key::F3 => self.to_bookmark(2),
+					Key::F4 => self.to_bookmark(3),
+					Key::F5 => self.to_bookmark(4),
+					Key::F6 => self.to_bookmark(5),
+					Key::F7 => self.to_bookmark(6),
+					Key::F8 => self.to_bookmark(7),
+					Key::F9 => self.to_bookmark(8),
+					Key::F10 => self.to_bookmark(9),
 					Key::Q if kmods.meta => d.window.quit(),
 					Key::F if kmods.meta => d.window.toggle_fullscreen(),
 					Key::Tab => {
@@ -511,6 +562,17 @@ impl State for App {
 
 			return Ok(());
 
+		})?;
+
+		return Ok(());
+
+	}
+
+	fn quit(&mut self, _: &mut Ctx) -> Result<()> {
+
+		data::save(PROJ, ENTRY, SaveData {
+			path: self.browser.path().to_path_buf(),
+			bookmarks: self.bookmarks.clone(),
 		})?;
 
 		return Ok(());

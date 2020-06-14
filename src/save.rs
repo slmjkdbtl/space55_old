@@ -1,12 +1,13 @@
 // wengwengweng
 
 use std::path::PathBuf;
+use std::collections::BTreeMap;
 use serde::Serialize;
 use serde::Deserialize;
 
 #[derive(Serialize, Deserialize)]
-struct SaveData {
-	path: PathBuf,
-	bookmarks: Vec<PathBuf>,
+pub struct SaveData {
+	pub path: PathBuf,
+	pub bookmarks: BTreeMap<usize, PathBuf>,
 }
 
