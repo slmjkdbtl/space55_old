@@ -31,7 +31,7 @@ enum Mode {
 	Insert,
 }
 
-pub struct TextBuf {
+pub struct TextEditor {
 	buf: TextArea,
 	path: PathBuf,
 	render_lines: Vec<RenderedLine>,
@@ -78,7 +78,7 @@ struct TextChunk {
 	color: Color,
 }
 
-impl TextBuf {
+impl TextEditor {
 
 	pub fn new(path: impl AsRef<Path>) -> Self {
 
@@ -214,7 +214,7 @@ impl TextBuf {
 
 }
 
-impl Buffer for TextBuf {
+impl Buffer for TextEditor {
 
 	fn path(&self) -> Option<&Path> {
 		return Some(&self.path);

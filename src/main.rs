@@ -124,13 +124,17 @@ impl App {
 
 	}
 
+	fn get_buf_n(&self, id: ID) -> Option<usize> {
+		return self.buffers
+			.iter()
+			.enumerate()
+			.position(|(i, (idd, buf))| *idd == id);
+	}
+
 	fn to_prev_buf(&mut self) {
 
 		if let Some(id) = self.cur_buf {
-			let n = self.buffers
-				.iter()
-				.enumerate()
-				.position(|(i, (idd, buf))| *idd == id);
+			let n = self.get_buf_n(id);
 			if let Some(n) = n {
 				if n > 0 {
 					self.to_buf_n(n - 1);
@@ -147,10 +151,7 @@ impl App {
 	fn to_next_buf(&mut self) {
 
 		if let Some(id) = self.cur_buf {
-			let n = self.buffers
-				.iter()
-				.enumerate()
-				.position(|(i, (idd, buf))| *idd == id);
+			let n = self.get_buf_n(id);
 			if let Some(n) = n {
 				if n < self.buffers.len() - 1 {
 					self.to_buf_n(n + 1);
@@ -162,6 +163,34 @@ impl App {
 			self.cur_buf = self.buffers.keys().next().cloned();
 		}
 
+	}
+
+	fn close_buf(&mut self, id: ID) {
+
+		if Some(id) == self.cur_buf {
+			if let Some(n) = self.get_buf_n(id) {
+				if n > 0 {
+					self.to_buf_n(n - 1);
+				} else {
+					self.to_buf_n(n + 1);
+				}
+			}
+		}
+
+		self.buffers.remove(&id);
+
+		if self.view == View::Buffer {
+			if self.buffers.is_empty() {
+				self.view = View::Browser;
+			}
+		}
+
+	}
+
+	fn close_cur_buf(&mut self) {
+		if let Some(id) = self.cur_buf {
+			self.close_buf(id);
+		}
 	}
 
 	fn new_buf(&mut self, mut b: impl Buffer) {
@@ -176,7 +205,7 @@ impl App {
 
 	}
 
-	fn open(&mut self, path: impl AsRef<Path>) -> Result<()> {
+	fn open(&mut self, d: &mut Ctx, path: impl AsRef<Path>) -> Result<()> {
 
 		let path = path.as_ref();
 
@@ -193,11 +222,11 @@ impl App {
 
 				"png"
 				| "jpg"
-				=> return Ok(self.new_buf(ImgBuf::new(path))),
+				=> return Ok(self.new_buf(ImageViewer::new(path)?)),
 
 				"glb"
 				| "obj"
-				=> return Ok(self.new_buf(ModelBuf::new(path))),
+				=> return Ok(self.new_buf(ModelViewer::new(d, path)?)),
 
 				"mp3"
 				| "ogg"
@@ -217,7 +246,7 @@ impl App {
 
 		}
 
-		self.new_buf(TextBuf::new(path));
+		self.new_buf(TextEditor::new(path));
 
 		return Ok(());
 
@@ -247,6 +276,15 @@ impl State for App {
 				if let Some(buf) = self.cur_buf_mut() {
 					buf.event(d, e)?;
 				}
+				match e {
+					Event::KeyPress(k) => {
+						match k {
+							Key::W if kmods.alt => self.close_cur_buf(),
+							_ => {},
+						}
+					},
+					_ => {},
+				}
 			},
 			View::Browser => {
 				match e {
@@ -254,7 +292,7 @@ impl State for App {
 						match k {
 							Key::Enter => {
 								if let Some(file) = self.browser.enter() {
-									self.open(file)?;
+									self.open(d, file)?;
 								}
 							},
 							_ => {},
@@ -278,8 +316,8 @@ impl State for App {
 					Key::Key7 if kmods.alt => self.to_buf_n(6),
 					Key::Key8 if kmods.alt => self.to_buf_n(7),
 					Key::Key9 if kmods.alt => self.to_buf_n(8),
-					Key::Left if kmods.alt => self.to_prev_buf(),
-					Key::Right if kmods.alt => self.to_next_buf(),
+					Key::Q if kmods.alt => self.to_prev_buf(),
+					Key::E if kmods.alt => self.to_next_buf(),
 					Key::Q if kmods.meta => d.window.quit(),
 					Key::F if kmods.meta => d.window.toggle_fullscreen(),
 					Key::Tab => {
