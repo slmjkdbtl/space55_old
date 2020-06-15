@@ -398,12 +398,12 @@ impl State for App {
 					Key::F10 => self.to_bookmark(9),
 					Key::Q if kmods.meta => d.window.quit(),
 					Key::F if kmods.meta => d.window.toggle_fullscreen(),
-					Key::T if kmods.meta => {
-						self.view = match self.view {
-							View::Term => View::Browser,
-							_ => View::Term,
-						};
-					}
+// 					Key::Backquote => {
+// 						self.view = match self.view {
+// 							View::Term => View::Browser,
+// 							_ => View::Term,
+// 						};
+// 					},
 					Key::Tab => {
 						self.view = match self.view {
 							View::Buffer => {

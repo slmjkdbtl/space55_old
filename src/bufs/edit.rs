@@ -52,8 +52,23 @@ enum Mode {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Action {
+enum Command {
 	Insert(char),
+	MoveUp,
+	MoveDown,
+	MoveLeft,
+	MoveRight,
+	MovePrevWord,
+	MoveNextWord,
+	MoveLineStart,
+	MoveLineEnd,
+	DelLine,
+	DelWord,
+	Del,
+	Undo,
+	Redo,
+	BreakLine,
+	Mode(Mode),
 }
 
 pub struct TextEditor {
@@ -64,6 +79,8 @@ pub struct TextEditor {
 	scroll_off: f32,
 	scroll_remainder: f32,
 	view_size: Option<(f32, f32)>,
+	recording: bool,
+	record: Vec<Command>,
 	highlight_ctx: Option<HighlightCtx>,
 }
 
@@ -181,15 +198,44 @@ impl TextEditor {
 			scroll_off: 0.0,
 			scroll_remainder: 0.0,
 			view_size: None,
+			recording: false,
+			record: vec![],
 			highlight_ctx: hi_ctx,
 		};
 
 	}
 
-	pub fn save(&mut self) -> Result<()> {
+	fn save(&mut self) -> Result<()> {
 		self.buf.clear_modified();
 		return std::fs::write(&self.path, self.buf.content())
 			.map_err(|_| format!("failed to write to {}", self.path.display()));
+	}
+
+	fn exec(&mut self, cmd: Command) {
+
+		if self.recording {
+			self.record.push(cmd.clone());
+		}
+
+		match cmd {
+			Command::Insert(ch) => self.buf.insert(ch),
+			Command::MoveUp => self.buf.move_up(),
+			Command::MoveDown => self.buf.move_down(),
+			Command::MoveLeft => self.buf.move_left(),
+			Command::MoveRight => self.buf.move_right(),
+			Command::MovePrevWord => self.buf.move_prev_word(),
+			Command::MoveNextWord => self.buf.move_next_word(),
+			Command::MoveLineStart => self.buf.move_line_start(),
+			Command::MoveLineEnd => self.buf.move_line_end(),
+			Command::DelLine => self.buf.del_line(),
+			Command::DelWord => self.buf.del_word(),
+			Command::Del => self.buf.del(),
+			Command::Undo => self.buf.undo(),
+			Command::Redo => self.buf.redo(),
+			Command::BreakLine => self.buf.break_line(),
+			Command::Mode(m) => self.mode = m,
+		}
+
 	}
 
 	fn highlight_all(&mut self) {
@@ -276,13 +322,13 @@ impl Buffer for TextEditor {
 				match self.mode {
 					Mode::Normal => {
 						match k {
-							Key::Enter => self.mode = Mode::Insert,
+							Key::Enter => self.exec(Command::Mode(Mode::Insert)),
 							_ => {},
 						}
 					},
 					Mode::Insert => {
 						match k {
-							Key::Esc => self.mode = Mode::Normal,
+							Key::Esc => self.exec(Command::Mode(Mode::Normal)),
 							_ => {},
 						}
 					},
@@ -299,36 +345,50 @@ impl Buffer for TextEditor {
 
 						match *k {
 							Key::W => self.save()?,
-							Key::K => self.buf.move_up(),
-							Key::J => self.buf.move_down(),
+							Key::K => self.exec(Command::MoveUp),
+							Key::J => self.exec(Command::MoveDown),
 							Key::H => {
 								if kmods.alt {
-									self.buf.move_prev_word();
+									self.exec(Command::MovePrevWord);
 								} else {
-									self.buf.move_left();
+									self.exec(Command::MoveLeft);
 								}
 							},
 							Key::L => {
 								if kmods.alt {
-									self.buf.move_next_word();
+									self.exec(Command::MoveNextWord);
 								} else {
-									self.buf.move_right();
+									self.exec(Command::MoveRight);
 								}
 							},
-							Key::Left => self.buf.move_left(),
-							Key::Right => self.buf.move_right(),
-							Key::Up => self.buf.move_up(),
-							Key::Down => self.buf.move_down(),
+							Key::Left => self.exec(Command::MoveLeft),
+							Key::Right => self.exec(Command::MoveRight),
+							Key::Up => self.exec(Command::MoveUp),
+							Key::Down => self.exec(Command::MoveDown),
 							Key::D => {
-								self.buf.del_line();
+								self.exec(Command::DelLine);
 								self.highlight_all();
 							},
 							Key::U => {
-								self.buf.undo();
+								self.exec(Command::Undo);
 								self.highlight_all();
 							},
 							Key::O => {
-								self.buf.redo();
+								self.exec(Command::Redo);
+								self.highlight_all();
+							},
+							Key::Backslash => {
+								if self.recording {
+									self.recording = false;
+								} else {
+									self.recording = true;
+									self.record.clear();
+								}
+							},
+							Key::Period => {
+								for i in 0..self.record.len() {
+									self.exec(self.record[i]);
+								}
 								self.highlight_all();
 							},
 							_ => {},
@@ -343,18 +403,18 @@ impl Buffer for TextEditor {
 							Key::Backspace => {
 
 								if kmods.alt {
-									self.buf.del_word();
+									self.exec(Command::DelWord);
 									self.highlight_all();
 								} else {
 
 									if let Some(cur_char) = self.buf.cur_char() {
 										if let Some(_) = WRAP_CHARS.get(&cur_char) {
-											self.buf.move_right();
-											self.buf.del();
+											self.exec(Command::MoveRight);
+											self.exec(Command::Del);
 										}
 									}
 
-									self.buf.del();
+									self.exec(Command::Del);
 									self.highlight_all();
 
 								}
@@ -366,7 +426,7 @@ impl Buffer for TextEditor {
 								let line = self.buf.get_line().cloned();
 								let cursor = self.buf.cursor();
 
-								self.buf.break_line();
+								self.exec(Command::BreakLine);
 
 								let mut level = 0;
 
@@ -388,11 +448,11 @@ impl Buffer for TextEditor {
 										if let Some(wch) = SCOPE_CHARS.get(&ch) {
 											level += 1;
 											if Some(*wch) == chars.next() {
-												self.buf.break_line();
+												self.exec(Command::BreakLine);
 												for _ in 0..level - 1 {
-													self.buf.insert('\t');
+													self.exec(Command::Insert('\t'));
 												}
-												self.buf.move_up();
+												self.exec(Command::MoveUp);
 											}
 										}
 									}
@@ -400,17 +460,17 @@ impl Buffer for TextEditor {
 								}
 
 								for _ in 0..level {
-									self.buf.insert('\t');
+									self.exec(Command::Insert('\t'));
 								}
 
 								self.highlight_all();
 
 							},
 
-							Key::Left => self.buf.move_left(),
-							Key::Right => self.buf.move_right(),
+							Key::Left => self.exec(Command::MoveLeft),
+							Key::Right => self.exec(Command::MoveRight),
 							Key::Tab => {
-								self.buf.insert('\t');
+								self.exec(Command::Insert('t'));
 								self.highlight_all();
 							},
 							_ => {},
@@ -433,12 +493,12 @@ impl Buffer for TextEditor {
 
 						match ch {
 							'<' => {
-								self.buf.move_line_start();
-								self.mode = Mode::Insert;
+								self.exec(Command::MoveLineStart);
+								self.exec(Command::Mode(Mode::Insert));
 							},
 							'>' => {
-								self.buf.move_line_end();
-								self.mode = Mode::Insert;
+								self.exec(Command::MoveLineEnd);
+								self.exec(Command::Mode(Mode::Insert));
 							},
 							_ => {},
 						}
@@ -447,11 +507,11 @@ impl Buffer for TextEditor {
 
 					Mode::Insert => {
 
-						self.buf.insert(*ch);
+						self.exec(Command::Insert(*ch));
 
 						if let Some(wch) = WRAP_CHARS.get(ch) {
-							self.buf.insert(*wch);
-							self.buf.move_left();
+							self.exec(Command::Insert(*wch));
+							self.exec(Command::MoveLeft);
 						}
 
 						self.highlight_all();
