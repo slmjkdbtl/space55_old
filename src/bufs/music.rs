@@ -118,9 +118,21 @@ impl Buffer for MusicPlayer {
 		let (vw, vh) = self.view_size.unwrap_or((gfx.width() as f32, gfx.height() as f32));
 
 		if let Some(cover) = &self.cover {
+
+			let (w, h) = (cover.width() as f32, cover.height() as f32);
+			let a1 = w / h;
+			let a2 = vw / vh;
+
+			let scale = if a1 > a2 {
+				vw / w
+			} else {
+				vh / h
+			};
+
 			gfx.draw_t(
 				mat4!()
 					.t2(vec2!(vw, -vh) * 0.5)
+					.s2(vec2!(scale))
 					,
 				&shapes::sprite(cover)
 					,
@@ -137,6 +149,9 @@ impl Drop for MusicPlayer {
 	fn drop(&mut self) {
 		if let Some(track) = self.track.take() {
 			track.detach();
+		}
+		if let Some(cover) = self.cover.take() {
+			cover.free();
 		}
 	}
 }

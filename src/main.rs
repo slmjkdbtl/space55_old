@@ -4,11 +4,13 @@ mod browse;
 mod bufs;
 mod save;
 mod term;
+mod conf;
 
 use browse::*;
 use bufs::*;
 use save::*;
 use term::*;
+use conf::*;
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -32,7 +34,7 @@ const SBAR_PADDING: Vec2 = vec2!(8, 6);
 const SBAR_HEIGHT: f32 = SBAR_FONT_SIZE + SBAR_PADDING.y * 2.0;
 
 const BUFBAR_FONT_SIZE: f32 = 10.0;
-const BUFBAR_TAB_WIDTH: f32 = 144.0;
+const BUFBAR_TAB_WIDTH: f32 = 160.0;
 const BUFBAR_COLOR: Color = rgba!(1, 0, 0.5, 1);
 const BUFBAR_PADDING: Vec2 = vec2!(8, 5);
 const BUFBAR_HEIGHT: f32 = BUFBAR_FONT_SIZE + BUFBAR_PADDING.y * 2.0;
@@ -396,6 +398,12 @@ impl State for App {
 					Key::F10 => self.to_bookmark(9),
 					Key::Q if kmods.meta => d.window.quit(),
 					Key::F if kmods.meta => d.window.toggle_fullscreen(),
+					Key::T if kmods.meta => {
+						self.view = match self.view {
+							View::Term => View::Browser,
+							_ => View::Term,
+						};
+					}
 					Key::Tab => {
 						self.view = match self.view {
 							View::Buffer => {
@@ -618,11 +626,14 @@ fn display_path(path: impl AsRef<Path>) -> String {
 }
 
 fn main() {
+
 	if let Err(e) = launcher()
 		.title("fopen")
+		.size(960, 640)
 		.resizable(true)
 		.run::<App>() {
 		elog!("{}", e);
 	}
+
 }
 

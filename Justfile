@@ -13,7 +13,7 @@ run +args="":
 build:
 	cargo build --release
 
-macos:
+macos: build
 	rm -rf dist/{{name}}.app
 	rm -rf dist/{{name}}_v{{version}}_mac.tar.gz
 	upx target/release/{{name}} -o {{name}}

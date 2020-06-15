@@ -48,6 +48,12 @@ static SCOPE_CHARS: Lazy<HashMap<char, char>> = Lazy::new(|| {
 enum Mode {
 	Normal,
 	Insert,
+	Select,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Action {
+	Insert(char),
 }
 
 pub struct TextEditor {
@@ -280,6 +286,7 @@ impl Buffer for TextEditor {
 							_ => {},
 						}
 					},
+					Mode::Select => {},
 				}
 
 			}
@@ -287,7 +294,9 @@ impl Buffer for TextEditor {
 			Event::KeyPressRepeat(k) => {
 
 				match self.mode {
+
 					Mode::Normal => {
+
 						match *k {
 							Key::W => self.save()?,
 							Key::K => self.buf.move_up(),
@@ -324,7 +333,9 @@ impl Buffer for TextEditor {
 							},
 							_ => {},
 						}
+
 					},
+
 					Mode::Insert => {
 
 						match k {
@@ -404,8 +415,13 @@ impl Buffer for TextEditor {
 							},
 							_ => {},
 						}
+
 					},
+
+					Mode::Select => {},
+
 				}
+
 
 			},
 
@@ -441,6 +457,8 @@ impl Buffer for TextEditor {
 						self.highlight_all();
 
 					},
+
+					Mode::Select => {},
 
 				}
 
@@ -523,6 +541,7 @@ impl Buffer for TextEditor {
 					let color = match self.mode {
 						Mode::Normal => rgba!(1),
 						Mode::Insert => rgba!(0, 1, 1, 1),
+						Mode::Select => rgba!(1),
 					};
 
 					if let Some(pos) = ftext.cursor_pos(cursor.col as usize - 1) {

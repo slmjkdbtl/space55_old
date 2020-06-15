@@ -1,17 +1,15 @@
 // wengwengweng
 
+use std::sync::mpsc;
+use std::thread;
 use crate::*;
 use kit::textedit::Input;
-
-enum Output {
-	Success(String),
-	Error(String),
-}
 
 pub struct Term {
 	view_size: Option<(f32, f32)>,
 	input: Input,
-	output: Option<Output>,
+	output: String,
+	cmd_rx: Option<mpsc::Receiver<u8>>,
 }
 
 impl Term {
@@ -20,28 +18,62 @@ impl Term {
 		return Self {
 			view_size: None,
 			input: Input::new(),
-			output: None,
+			output: String::new(),
+			cmd_rx: None,
 		};
 	}
 
 	pub fn exec(&mut self, cmd: &str) -> Result<()> {
 
-		let mut scmd = cmd.split(' ');
+		let (tx, rx) = mpsc::channel();
+		let cmd = cmd.to_string();
 
-		if let Some(program) = scmd.next() {
+		self.output = String::new();
+		self.cmd_rx = Some(rx);
 
-			let out = Command::new(program)
-				.args(&scmd.collect::<Vec<&str>>())
-				.output()
-				.map_err(|_| format!(r#"failed to exec cmd "{}""#, cmd))?;
+		thread::spawn(move || {
 
-			if out.status.success() {
-				self.output = Some(Output::Success(String::from_utf8_lossy(&out.stdout).to_string()));
-			} else {
-				self.output = Some(Output::Error(String::from_utf8_lossy(&out.stderr).to_string()));
+			let res: Result<()> = || -> Result<()> {
+
+				let mut child = Command::new("fish")
+					.arg("-c")
+					.arg(&cmd)
+					.stdin(Stdio::piped())
+					.stdout(Stdio::piped())
+					.stderr(Stdio::piped())
+					.spawn()
+					.map_err(|_| format!("failed to execute '{}'", cmd))?;
+
+				use std::io::Read;
+				use std::io::Write;
+
+				let stdin = child.stdin.take().ok_or_else(|| format!("stdin"))?;
+				let stdout = child.stdout.take().ok_or_else(|| format!("stdout"))?;
+				let stderr = child.stderr.take().ok_or_else(|| format!("stderr"))?;
+				let mut stdout_b = stdout.bytes();
+				let mut stderr_b = stderr.bytes();
+
+				while let Some(b) = stdout_b.next() {
+					if let Ok(b) = b {
+						tx.send(b).map_err(|_| format!("failed to send byte"))?;
+					}
+				}
+
+				while let Some(b) = stderr_b.next() {
+					if let Ok(b) = b {
+						tx.send(b).map_err(|_| format!("failed to send byte"))?;
+					}
+				}
+
+				return Ok(());
+
+			}();
+
+			if let Err(e) = res {
+				elog!("{}", e);
 			}
 
-		}
+		});
 
 		return Ok(());
 
@@ -81,7 +113,15 @@ impl Term {
 	}
 
 	pub fn update(&mut self, d: &mut Ctx) -> Result<()> {
+
+		if let Some(cmd_rx) = &self.cmd_rx {
+			for b in cmd_rx.try_iter() {
+				self.output.push(b as char);
+			}
+		}
+
 		return Ok(());
+
 	}
 
 	pub fn draw(&self, gfx: &mut Gfx) -> Result<()> {
@@ -94,23 +134,15 @@ impl Term {
 				.size(16.0)
 		)?;
 
-		if let Some(out) = &self.output {
-
-			let (c, s) = match out {
-				Output::Success(s) => (rgba!(1), s),
-				Output::Error(s) => (rgba!(1, 0, 0, 1), s),
-			};
-
-			gfx.draw_t(
-				mat4!()
-					.ty(-16.0)
-					,
-				&shapes::text(s)
-					.align(Origin::TopLeft)
-					.size(16.0)
-					.color(c)
-			)?;
-		}
+		gfx.draw_t(
+			mat4!()
+				.ty(-16.0)
+				,
+			&shapes::text(&self.output)
+				.align(Origin::TopLeft)
+				.size(16.0)
+				,
+		)?;
 
 		return Ok(());
 

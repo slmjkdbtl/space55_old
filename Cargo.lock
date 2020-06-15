@@ -611,6 +611,7 @@ dependencies = [
  "rayon",
  "serde",
  "syntect",
+ "toml",
 ]
 
 [[package]]
