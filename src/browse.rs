@@ -197,6 +197,18 @@ impl FileBrowser {
 
 	}
 
+	pub fn select(&mut self, item: impl AsRef<Path>) {
+
+		let pos = self.entries
+			.iter()
+			.position(|f| f == item.as_ref());
+
+		if let Some(pos) = pos {
+			self.cursor = Cursor::Entry(pos);
+		}
+
+	}
+
 	pub fn enter(&mut self) -> Option<PathBuf> {
 
 		match self.cursor {

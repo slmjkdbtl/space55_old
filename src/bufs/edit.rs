@@ -211,6 +211,7 @@ impl TextEditor {
 	}
 
 	fn save(&mut self) -> Result<()> {
+		self.trim_all();
 		self.buf.clear_modified();
 		return std::fs::write(&self.path, self.buf.content())
 			.map_err(|_| format!("failed to write to {}", self.path.display()));
@@ -302,12 +303,7 @@ impl TextEditor {
 		for (i, l) in lines.iter().enumerate().rev().skip(lines.len() - cursor.line as usize) {
 			for f in pat.find_iter(l) {
 				let col = f.start() as i32 + 1;
-				// TODO: clean logic
-				if i as i32 + 1 == cursor.line {
-					if col < cursor.col {
-						return Some(Cursor::new(i as i32 + 1, col));
-					}
-				} else {
+				if !(i as i32 + 1 == cursor.line && col >= cursor.col) {
 					return Some(Cursor::new(i as i32 + 1, col));
 				}
 			}
@@ -330,18 +326,37 @@ impl TextEditor {
 		for (i, l) in lines.iter().enumerate().skip(cursor.line as usize - 1) {
 			for f in pat.find_iter(l) {
 				let col = f.start() as i32 + 1;
-				// TODO: clean logic
-				if i as i32 + 1 == cursor.line {
-					if col > cursor.col {
-						return Some(Cursor::new(i as i32 + 1, col));
-					}
-				} else {
+				if !(i as i32 + 1 == cursor.line && col <= cursor.col) {
 					return Some(Cursor::new(i as i32 + 1, col));
 				}
 			}
 		}
 
 		return None;
+
+	}
+
+	fn trim_all(&mut self) {
+		for l in self.buf.lines_mut() {
+			*l = l.trim_end().to_string();
+		}
+		self.buf.move_to(self.buf.cursor());
+	}
+
+	// TODO: support other comments
+	fn toggle_comment(&mut self) {
+
+		let ln = self.buf.cursor().line;
+
+		if let Some(line) = self.buf.get_line_at(ln) {
+			if line.starts_with("// ") {
+				self.buf.set_line_at(ln, &line[3..].to_string());
+			} else {
+				self.buf.set_line_at(ln, &format!("// {}", line));
+			}
+		}
+
+		self.highlight_all();
 
 	}
 
@@ -595,6 +610,7 @@ impl Buffer for TextEditor {
 								self.mode = Mode::Command;
 								self.cmd_bar = Input::new();
 							},
+							'/' => self.toggle_comment(),
 							_ => {},
 						}
 

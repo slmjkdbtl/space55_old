@@ -408,9 +408,14 @@ impl State for App {
 						self.view = match self.view {
 							View::Buffer => {
 								if let Some(buf) = self.cur_buf() {
+									let path = buf.path().map(|p| p.to_path_buf());
 									if buf.busy() {
 										View::Buffer
 									} else {
+										self.browser.refresh();
+										if let Some(path) = path {
+											self.browser.select(path);
+										}
 										View::Browser
 									}
 								} else {
