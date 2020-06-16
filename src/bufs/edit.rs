@@ -302,6 +302,7 @@ impl TextEditor {
 		for (i, l) in lines.iter().enumerate().rev().skip(lines.len() - cursor.line as usize) {
 			for f in pat.find_iter(l) {
 				let col = f.start() as i32 + 1;
+				// TODO: clean logic
 				if i as i32 + 1 == cursor.line {
 					if col < cursor.col {
 						return Some(Cursor::new(i as i32 + 1, col));
@@ -329,6 +330,7 @@ impl TextEditor {
 		for (i, l) in lines.iter().enumerate().skip(cursor.line as usize - 1) {
 			for f in pat.find_iter(l) {
 				let col = f.start() as i32 + 1;
+				// TODO: clean logic
 				if i as i32 + 1 == cursor.line {
 					if col > cursor.col {
 						return Some(Cursor::new(i as i32 + 1, col));

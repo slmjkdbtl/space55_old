@@ -3,6 +3,7 @@
 use std::ffi::OsStr;
 use std::path::Path;
 use std::path::PathBuf;
+use std::collections::HashSet;
 
 use crate::*;
 
@@ -11,15 +12,16 @@ const HSPACE: f32 = 6.0;
 const FONT_SIZE: f32 = 12.0;
 const LINE_HEIGHT: f32 = FONT_SIZE + VSPACE * 2.0;
 
-#[derive(Clone)]
 pub struct FileBrowser {
-	cur_path: PathBuf,
+	path: PathBuf,
 	entries: Vec<PathBuf>,
 	cursor: Cursor,
 	hide_hidden: bool,
 	scroll_off: f32,
 	scroll_remainder: f32,
 	view_size: Option<(f32, f32)>,
+	repo: Option<git2::Repository>,
+	modified: HashSet<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -47,13 +49,15 @@ impl FileBrowser {
 		let path = path.as_ref();
 
 		let mut fbrowse = Self {
-			cur_path: path.to_owned(),
+			path: path.to_owned(),
 			entries: vec![],
 			cursor: Cursor::Up,
 			hide_hidden: true,
 			scroll_off: 0.0,
 			scroll_remainder: 0.0,
 			view_size: None,
+			repo: None,
+			modified: hset![],
 		};
 
 		fbrowse.cd(path);
@@ -63,7 +67,7 @@ impl FileBrowser {
 	}
 
 	pub fn path(&self) -> &PathBuf {
-		return &self.cur_path;
+		return &self.path;
 	}
 
 	pub fn entries(&self) -> &[PathBuf] {
@@ -74,14 +78,12 @@ impl FileBrowser {
 		self.view_size = Some((w, h));
 	}
 
-	pub fn cd(&mut self, path: impl AsRef<Path>) {
-
-		let path = path.as_ref();
+	pub fn refresh(&mut self) {
 
 		let mut dirs = vec![];
 		let mut files = vec![];
 
-		if let Ok(entries) = path.read_dir() {
+		if let Ok(entries) = self.path.read_dir() {
 
 			for e in entries {
 
@@ -112,7 +114,6 @@ impl FileBrowser {
 
 		dirs.append(&mut files);
 
-		self.cur_path = path.to_owned();
 		self.entries = dirs;
 		self.scroll_off = 0.0;
 
@@ -121,6 +122,35 @@ impl FileBrowser {
 		} else {
 			Cursor::Entry(0)
 		};
+
+		self.repo = git2::Repository::discover(&self.path).ok();
+		self.modified.clear();
+
+		if let Some(repo) = &self.repo {
+			if let Some(git_path) = repo.path().parent() {
+				if let Ok(statuses) = repo.statuses(None) {
+					for s in statuses.iter() {
+						if let Some(path) = s.path() {
+							let status = s.status();
+							if
+								status == git2::Status::WT_MODIFIED
+								|| status == git2::Status::WT_NEW
+								|| status == git2::Status::WT_RENAMED
+							{
+								self.modified.insert(git_path.join(PathBuf::from(path)));
+							}
+						}
+					}
+				}
+			}
+		}
+
+	}
+
+	pub fn cd(&mut self, path: impl AsRef<Path>) {
+
+		self.path = path.as_ref().to_owned();
+		self.refresh();
 
 	}
 
@@ -154,11 +184,11 @@ impl FileBrowser {
 
 	pub fn back(&mut self) {
 
-		let path = self.cur_path.clone();
-		let success = self.cur_path.pop();
+		let path = self.path.clone();
+		let success = self.path.pop();
 
 		if success {
-			self.cd(&self.cur_path.clone());
+			self.cd(&self.path.clone());
 		}
 
 		if let Some(i) = self.entries.iter().position(|p| p == &path) {
@@ -200,6 +230,7 @@ impl FileBrowser {
 			KeyPress(k) => {
 				match *k {
 					Key::Backspace => self.back(),
+					Key::R => self.refresh(),
 					_ => {},
 				}
 			},
@@ -296,31 +327,38 @@ impl FileBrowser {
 			)?;
 
 			// entries
-			for (i, e) in self.entries().iter().enumerate() {
+			for (i, path) in self.entries().iter().enumerate() {
 
-				let color = if e.is_dir() {
-					rgba!(0, 1, 1, 1)
+				let (color, suffix) = if path.is_dir() {
+					(rgba!(0, 1, 1, 1), "/")
 				} else {
-					rgba!(1, 1, 1, 1)
+					(rgba!(1, 1, 1, 1), "")
 				};
 
-				let suffix = if e.is_dir() {
-					"/"
-				} else {
-					""
-				};
+				if let Some(fname) = path.file_name().and_then(OsStr::to_str) {
 
-				if let Some(fname) = e.file_name().and_then(OsStr::to_str) {
+					// TODO: better presentation
+
+					let t1 = format!("{}{}", fname, suffix);
+
+					let mut chunks = vec![
+						shapes::textc(&t1, color)
+					];
+
+					if self.modified.contains(path) {
+						chunks.push(shapes::textc(" [*]", rgba!(1, 1, 0.5, 1)));
+					};
+
 					gfx.draw_t(
 						mat4!()
 							.t2(vec2!(HSPACE, (i + 1) as f32 * -LINE_HEIGHT - VSPACE))
 							,
-						&shapes::text(&format!("{}{}", fname, suffix))
+						&shapes::Text::from_chunks(&chunks)
 							.size(FONT_SIZE)
 							.align(gfx::Origin::TopLeft)
-							.color(color)
 							,
 					)?;
+
 				}
 
 			}
@@ -334,5 +372,4 @@ impl FileBrowser {
 	}
 
 }
-
 
