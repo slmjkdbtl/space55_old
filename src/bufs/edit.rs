@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 
 use crate::*;
-use kit::textedit::TextArea;
+use kit::textedit::*;
 
 use rayon::prelude::*;
 use once_cell::sync::Lazy;
@@ -49,6 +49,7 @@ enum Mode {
 	Normal,
 	Insert,
 	Select,
+	Command,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -68,7 +69,6 @@ enum Command {
 	Undo,
 	Redo,
 	BreakLine,
-	Mode(Mode),
 }
 
 pub struct TextEditor {
@@ -82,6 +82,8 @@ pub struct TextEditor {
 	recording: bool,
 	record: Vec<Command>,
 	highlight_ctx: Option<HighlightCtx>,
+	cmd_bar: Input,
+	search_query: Option<String>,
 }
 
 #[derive(Clone)]
@@ -201,6 +203,8 @@ impl TextEditor {
 			recording: false,
 			record: vec![],
 			highlight_ctx: hi_ctx,
+			cmd_bar: Input::new(),
+			search_query: None,
 		};
 
 	}
@@ -233,7 +237,6 @@ impl TextEditor {
 			Command::Undo => self.buf.undo(),
 			Command::Redo => self.buf.redo(),
 			Command::BreakLine => self.buf.break_line(),
-			Command::Mode(m) => self.mode = m,
 		}
 
 	}
@@ -322,17 +325,43 @@ impl Buffer for TextEditor {
 				match self.mode {
 					Mode::Normal => {
 						match k {
-							Key::Enter => self.exec(Command::Mode(Mode::Insert)),
+							Key::Enter => self.mode = Mode::Insert,
+							Key::W => self.save()?,
+							Key::Backslash => {
+								if self.recording {
+									self.recording = false;
+								} else {
+									self.recording = true;
+									self.record.clear();
+								}
+							},
+							Key::Period if kmods.alt => {
+								for i in 0..self.record.len() {
+									self.exec(self.record[i]);
+								}
+								self.highlight_all();
+							},
 							_ => {},
 						}
 					},
 					Mode::Insert => {
 						match k {
-							Key::Esc => self.exec(Command::Mode(Mode::Normal)),
+							Key::Esc => self.mode = Mode::Normal,
 							_ => {},
 						}
 					},
 					Mode::Select => {},
+					Mode::Command => {
+						match k {
+							Key::Esc => self.mode = Mode::Normal,
+							Key::Enter => {
+								self.search_query = Some(self.cmd_bar.content().to_string());
+								self.mode = Mode::Normal;
+							},
+							_ => {},
+						}
+					},
+
 				}
 
 			}
@@ -344,7 +373,6 @@ impl Buffer for TextEditor {
 					Mode::Normal => {
 
 						match *k {
-							Key::W => self.save()?,
 							Key::K => self.exec(Command::MoveUp),
 							Key::J => self.exec(Command::MoveDown),
 							Key::H => {
@@ -377,19 +405,11 @@ impl Buffer for TextEditor {
 								self.exec(Command::Redo);
 								self.highlight_all();
 							},
-							Key::Backslash => {
-								if self.recording {
-									self.recording = false;
-								} else {
-									self.recording = true;
-									self.record.clear();
-								}
+							Key::Semicolon if kmods.alt => {
+								// TODO: prev search
 							},
-							Key::Period => {
-								for i in 0..self.record.len() {
-									self.exec(self.record[i]);
-								}
-								self.highlight_all();
+							Key::Quote if kmods.alt => {
+								// TODO: next search
 							},
 							_ => {},
 						}
@@ -470,7 +490,7 @@ impl Buffer for TextEditor {
 							Key::Left => self.exec(Command::MoveLeft),
 							Key::Right => self.exec(Command::MoveRight),
 							Key::Tab => {
-								self.exec(Command::Insert('t'));
+								self.exec(Command::Insert('\t'));
 								self.highlight_all();
 							},
 							_ => {},
@@ -480,8 +500,17 @@ impl Buffer for TextEditor {
 
 					Mode::Select => {},
 
-				}
+					Mode::Command => {
+						match k {
+							Key::Backspace if kmods.alt => self.cmd_bar.del_word(),
+							Key::Backspace => self.cmd_bar.del(),
+							Key::Left => self.cmd_bar.move_left(),
+							Key::Right => self.cmd_bar.move_right(),
+							_ => {},
+						}
+					},
 
+				}
 
 			},
 
@@ -494,11 +523,15 @@ impl Buffer for TextEditor {
 						match ch {
 							'<' => {
 								self.exec(Command::MoveLineStart);
-								self.exec(Command::Mode(Mode::Insert));
+								self.mode = Mode::Insert;
 							},
 							'>' => {
 								self.exec(Command::MoveLineEnd);
-								self.exec(Command::Mode(Mode::Insert));
+								self.mode = Mode::Insert;
+							},
+							'?' => {
+								self.mode = Mode::Command;
+								self.cmd_bar = Input::new();
 							},
 							_ => {},
 						}
@@ -518,7 +551,11 @@ impl Buffer for TextEditor {
 
 					},
 
-					Mode::Select => {},
+					Mode::Command => {
+						self.cmd_bar.insert(*ch);
+					},
+
+					_ => {},
 
 				}
 
@@ -526,17 +563,22 @@ impl Buffer for TextEditor {
 
 			Event::Wheel(d, _) => {
 
-				let y = d.y * 0.1;
-				self.scroll_remainder = (y + self.scroll_remainder) % 1.0;
-				let y = (y + self.scroll_remainder) as i32;
+				if let Mode::Normal = self.mode {
 
-				for _ in 0..y.abs() {
-					if y > 0 {
-						self.buf.move_down();
-					} else if y < 0 {
-						self.buf.move_up();
+					let y = d.y * 0.1;
+					self.scroll_remainder = (y + self.scroll_remainder) % 1.0;
+					let y = (y + self.scroll_remainder) as i32;
+
+					for _ in 0..y.abs() {
+						if y > 0 {
+							self.buf.move_down();
+						} else if y < 0 {
+							self.buf.move_up();
+						}
 					}
+
 				}
+
 			},
 
 			_ => {},
@@ -602,6 +644,7 @@ impl Buffer for TextEditor {
 						Mode::Normal => rgba!(1),
 						Mode::Insert => rgba!(0, 1, 1, 1),
 						Mode::Select => rgba!(1),
+						Mode::Command => rgba!(1, 1, 1, 0),
 					};
 
 					if let Some(pos) = ftext.cursor_pos(cursor.col as usize - 1) {
@@ -648,6 +691,65 @@ impl Buffer for TextEditor {
 			}
 
 		}
+
+		let (m, c) = match self.mode {
+			Mode::Normal => ("normal", rgba!(0.5, 1, 1, 1)),
+			Mode::Insert => ("insert", rgba!(0.5, 1, 0.5, 1)),
+			Mode::Select => ("select", rgba!(1, 0.5, 0.5, 1)),
+			Mode::Command => ("command", rgba!(1, 1, 0.5, 1)),
+		};
+
+		gfx.draw(
+			&shapes::rect(
+				vec2!(0, -vh + FONT_SIZE + 4.0),
+				vec2!(vw, -vh),
+			)
+				.fill(c)
+		)?;
+
+		gfx.draw_t(
+			mat4!()
+				.t2(vec2!(2.0, -vh + 2.0))
+				,
+			&shapes::text(&format!("{}", m.to_uppercase()))
+				.align(Origin::BottomLeft)
+				.size(FONT_SIZE)
+				.color(rgba!(0, 0, 0, 1))
+		)?;
+
+// 		if let Mode::Command = self.mode {
+
+// 			gfx.draw(
+// 				&shapes::rect(
+// 					vec2!(0, -vh + FONT_SIZE),
+// 					vec2!(vw, -vh),
+// 				)
+// 					.fill(rgba!(0, 0, 0, 1))
+// 			)?;
+
+// 			let cmd_bar = shapes::text(self.cmd_bar.content())
+// 				.align(Origin::BottomLeft)
+// 				.size(FONT_SIZE)
+// 				.format(gfx);
+
+// 			if let Some(pos) = cmd_bar.cursor_pos(self.cmd_bar.cursor() as usize) {
+// 				gfx.draw_t(
+// 					mat4!()
+// 						.t2(vec2!(0, -vh))
+// 						.t2(pos)
+// 						,
+// 					&shapes::rect(vec2!(0), vec2!(12.0, -FONT_SIZE)),
+// 				)?;
+// 			}
+
+// 			gfx.draw_t(
+// 				mat4!()
+// 					.t2(vec2!(0, -vh))
+// 					,
+// 				&cmd_bar
+// 			)?;
+
+// 		}
 
 		return Ok(());
 
