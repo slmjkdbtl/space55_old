@@ -1,6 +1,6 @@
 // wengwengweng
 
-use std::io::Cursor;
+use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::collections::HashMap;
@@ -55,6 +55,7 @@ enum Mode {
 #[derive(Clone, Copy, Debug)]
 enum Command {
 	Insert(char),
+	MoveTo(Cursor),
 	MoveUp,
 	MoveDown,
 	MoveLeft,
@@ -83,7 +84,7 @@ pub struct TextEditor {
 	record: Vec<Command>,
 	highlight_ctx: Option<HighlightCtx>,
 	cmd_bar: Input,
-	search_query: Option<String>,
+	search_pattern: Option<regex::Regex>,
 }
 
 #[derive(Clone)]
@@ -139,7 +140,7 @@ impl TextEditor {
 			.flatten()
 			.cloned();
 
-		let theme = ThemeSet::load_from_reader(&mut Cursor::new(&include_str!("themes/dracula.tmTheme")[..])).ok();
+		let theme = ThemeSet::load_from_reader(&mut io::Cursor::new(&include_str!("themes/dracula.tmTheme")[..])).ok();
 
 		let mut hi_ctx = match (syntax, theme) {
 			(Some(s), Some(t)) => {
@@ -204,7 +205,7 @@ impl TextEditor {
 			record: vec![],
 			highlight_ctx: hi_ctx,
 			cmd_bar: Input::new(),
-			search_query: None,
+			search_pattern: None,
 		};
 
 	}
@@ -223,6 +224,7 @@ impl TextEditor {
 
 		match cmd {
 			Command::Insert(ch) => self.buf.insert(ch),
+			Command::MoveTo(c) => self.buf.move_to(c),
 			Command::MoveUp => self.buf.move_up(),
 			Command::MoveDown => self.buf.move_down(),
 			Command::MoveLeft => self.buf.move_left(),
@@ -284,6 +286,60 @@ impl TextEditor {
 			}).collect()
 
 		};
+
+	}
+
+	fn search_backward(&self) -> Option<Cursor> {
+
+		let pat = match &self.search_pattern {
+			Some(pat) => pat,
+			None => return None,
+		};
+
+		let cursor = self.buf.cursor();
+		let lines = self.buf.lines();
+
+		for (i, l) in lines.iter().enumerate().rev().skip(lines.len() - cursor.line as usize) {
+			for f in pat.find_iter(l) {
+				let col = f.start() as i32 + 1;
+				if i as i32 + 1 == cursor.line {
+					if col < cursor.col {
+						return Some(Cursor::new(i as i32 + 1, col));
+					}
+				} else {
+					return Some(Cursor::new(i as i32 + 1, col));
+				}
+			}
+		}
+
+		return None;
+
+	}
+
+	fn search_forward(&self) -> Option<Cursor> {
+
+		let pat = match &self.search_pattern {
+			Some(pat) => pat,
+			None => return None,
+		};
+
+		let cursor = self.buf.cursor();
+		let lines = self.buf.lines();
+
+		for (i, l) in lines.iter().enumerate().skip(cursor.line as usize - 1) {
+			for f in pat.find_iter(l) {
+				let col = f.start() as i32 + 1;
+				if i as i32 + 1 == cursor.line {
+					if col > cursor.col {
+						return Some(Cursor::new(i as i32 + 1, col));
+					}
+				} else {
+					return Some(Cursor::new(i as i32 + 1, col));
+				}
+			}
+		}
+
+		return None;
 
 	}
 
@@ -355,7 +411,7 @@ impl Buffer for TextEditor {
 						match k {
 							Key::Esc => self.mode = Mode::Normal,
 							Key::Enter => {
-								self.search_query = Some(self.cmd_bar.content().to_string());
+								self.search_pattern = regex::Regex::new(self.cmd_bar.content()).ok();
 								self.mode = Mode::Normal;
 							},
 							_ => {},
@@ -406,10 +462,14 @@ impl Buffer for TextEditor {
 								self.highlight_all();
 							},
 							Key::Semicolon if kmods.alt => {
-								// TODO: prev search
+								if let Some(pos) = self.search_backward() {
+									self.exec(Command::MoveTo(pos));
+								}
 							},
 							Key::Quote if kmods.alt => {
-								// TODO: next search
+								if let Some(pos) = self.search_forward() {
+									self.exec(Command::MoveTo(pos));
+								}
 							},
 							_ => {},
 						}
@@ -591,13 +651,14 @@ impl Buffer for TextEditor {
 
 	fn update(&mut self, d: &mut Ctx) -> Result<()> {
 
-		let (vw, vh) = self.view_size.unwrap_or((d.gfx.width() as f32, d.gfx.height() as f32));
+		let (_, vh) = self.view_size.unwrap_or((d.gfx.width() as f32, d.gfx.height() as f32));
+		let th = vh - FONT_SIZE - LINE_SPACING * 2.0;
 		let height = LINE_HEIGHT * self.buf.cursor().line as f32;
 
 		let y = height - self.scroll_off;
 
-		if y > vh {
-			self.scroll_off = height - vh;
+		if y > th {
+			self.scroll_off = height - th;
 		}
 
 		if self.scroll_off > (height - LINE_HEIGHT) {
@@ -612,10 +673,11 @@ impl Buffer for TextEditor {
 
 		let mut y = LINE_SPACING * 0.5;
 		let (vw, vh) = self.view_size.unwrap_or((gfx.width() as f32, gfx.height() as f32));
+		let th = vh - FONT_SIZE - LINE_SPACING * 2.0;
 
 		// TODO: apply scroll off remainder
 		let l1 = f32::floor(self.scroll_off / LINE_HEIGHT) as usize;
-		let l2 = f32::ceil((self.scroll_off + vh) / LINE_HEIGHT) as usize;
+		let l2 = f32::ceil((self.scroll_off + th) / LINE_HEIGHT) as usize;
 
 		let cursor = self.buf.cursor();
 
@@ -682,7 +744,7 @@ impl Buffer for TextEditor {
 					&ftext,
 				)?;
 
-				if y >= vh {
+				if y >= th {
 					break;
 				}
 
@@ -701,7 +763,7 @@ impl Buffer for TextEditor {
 
 		gfx.draw(
 			&shapes::rect(
-				vec2!(0, -vh + FONT_SIZE + 4.0),
+				vec2!(0, -vh + FONT_SIZE + LINE_SPACING * 2.0),
 				vec2!(vw, -vh),
 			)
 				.fill(c)
@@ -709,7 +771,7 @@ impl Buffer for TextEditor {
 
 		gfx.draw_t(
 			mat4!()
-				.t2(vec2!(2.0, -vh + 2.0))
+				.t2(vec2!(LINE_SPACING, -vh + LINE_SPACING))
 				,
 			&shapes::text(&format!("{}", m.to_uppercase()))
 				.align(Origin::BottomLeft)
@@ -717,39 +779,39 @@ impl Buffer for TextEditor {
 				.color(rgba!(0, 0, 0, 1))
 		)?;
 
-// 		if let Mode::Command = self.mode {
+		if let Mode::Command = self.mode {
 
-// 			gfx.draw(
-// 				&shapes::rect(
-// 					vec2!(0, -vh + FONT_SIZE),
-// 					vec2!(vw, -vh),
-// 				)
-// 					.fill(rgba!(0, 0, 0, 1))
-// 			)?;
+			gfx.draw(
+				&shapes::rect(
+					vec2!(0, -vh + FONT_SIZE + 4.0 + FONT_SIZE),
+					vec2!(vw, -vh + FONT_SIZE + 4.0),
+				)
+					.fill(rgba!(0, 0, 0, 1))
+			)?;
 
-// 			let cmd_bar = shapes::text(self.cmd_bar.content())
-// 				.align(Origin::BottomLeft)
-// 				.size(FONT_SIZE)
-// 				.format(gfx);
+			let cmd_bar = shapes::text(self.cmd_bar.content())
+				.align(Origin::BottomLeft)
+				.size(FONT_SIZE)
+				.format(gfx);
 
-// 			if let Some(pos) = cmd_bar.cursor_pos(self.cmd_bar.cursor() as usize) {
-// 				gfx.draw_t(
-// 					mat4!()
-// 						.t2(vec2!(0, -vh))
-// 						.t2(pos)
-// 						,
-// 					&shapes::rect(vec2!(0), vec2!(12.0, -FONT_SIZE)),
-// 				)?;
-// 			}
+			if let Some(pos) = cmd_bar.cursor_pos(self.cmd_bar.cursor() as usize) {
+				gfx.draw_t(
+					mat4!()
+						.t2(vec2!(0, -vh + FONT_SIZE + LINE_SPACING * 2.0))
+						.t2(pos)
+						,
+					&shapes::rect(vec2!(0), vec2!(12.0, -FONT_SIZE)),
+				)?;
+			}
 
-// 			gfx.draw_t(
-// 				mat4!()
-// 					.t2(vec2!(0, -vh))
-// 					,
-// 				&cmd_bar
-// 			)?;
+			gfx.draw_t(
+				mat4!()
+					.t2(vec2!(0, -vh + FONT_SIZE + LINE_SPACING * 2.0))
+					,
+				&cmd_bar
+			)?;
 
-// 		}
+		}
 
 		return Ok(());
 
