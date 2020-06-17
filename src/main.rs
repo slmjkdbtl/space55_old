@@ -4,16 +4,18 @@ mod browse;
 mod bufs;
 mod save;
 mod term;
-mod conf;
 
 use browse::*;
 use bufs::*;
 use save::*;
 use term::*;
-use conf::*;
 
+use std::mem;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Instant;
+use std::time::Duration;
+use std::collections::VecDeque;
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::process::Stdio;
@@ -25,7 +27,7 @@ use input::*;
 
 type ID = usize;
 
-const PROJ: &str = "fopen";
+const PROJ: &str = "space55";
 const ENTRY: &str = "save";
 
 const SBAR_FONT_SIZE: f32 = 12.0;
@@ -38,6 +40,9 @@ const BUFBAR_TAB_WIDTH: f32 = 160.0;
 const BUFBAR_COLOR: Color = rgba!(1, 0, 0.5, 1);
 const BUFBAR_PADDING: Vec2 = vec2!(8, 5);
 const BUFBAR_HEIGHT: f32 = BUFBAR_FONT_SIZE + BUFBAR_PADDING.y * 2.0;
+
+const LOG_SIZE: usize = 5;
+const LOG_LIFE: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum View {
@@ -80,7 +85,52 @@ trait Buffer: 'static {
 	fn close(&mut self) {}
 	fn set_active(&mut self, _: bool) {}
 	fn set_view_size(&mut self, _: f32, _: f32) {}
+	fn log(&mut self) -> Option<&mut Vec<Msg>> {
+		return None;
+	}
 
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Msg {
+	r#type: MsgType,
+	msg: String,
+	time: Instant,
+}
+
+impl Msg {
+
+	fn new(t: MsgType, m: &str) -> Self {
+		return Self {
+			r#type: t,
+			msg: m.to_string(),
+			time: Instant::now(),
+		};
+	}
+
+	fn info(m: &str) -> Self {
+		return Self::new(MsgType::Info, m);
+	}
+
+	fn success(m: &str) -> Self {
+		return Self::new(MsgType::Success, m);
+	}
+
+	fn error(m: &str) -> Self {
+		return Self::new(MsgType::Error, m);
+	}
+
+	fn age(&self) -> Duration {
+		return self.time.elapsed();
+	}
+
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MsgType {
+	Info,
+	Error,
+	Success,
 }
 
 struct App {
@@ -92,6 +142,7 @@ struct App {
 	cur_buf: Option<ID>,
 	bufbar_offset: f32,
 	bookmarks: BTreeMap<ID, PathBuf>,
+	log: VecDeque<Msg>,
 }
 
 impl App {
@@ -277,6 +328,21 @@ impl App {
 
 	}
 
+	fn new_file(&mut self, fname: &str) {
+
+		let path = self.browser.path().join(fname);
+
+		for (id, buf) in &self.buffers {
+			if Some(path.as_ref()) == buf.path() {
+				self.to_buf(*id);
+				return;
+			}
+		}
+
+		self.new_buf(TextEditor::new(self.browser.path().join(fname)));
+
+	}
+
 	fn add_bookmark(&mut self, slot: ID, path: impl AsRef<Path>) {
 		self.bookmarks.insert(slot, path.as_ref().to_path_buf());
 	}
@@ -316,6 +382,7 @@ impl State for App {
 			last_buf_id: 0,
 			cur_buf: None,
 			bufbar_offset: 0.0,
+			log: vecd![],
 		});
 
 	}
@@ -452,6 +519,20 @@ impl State for App {
 			View::Browser => self.browser.update(d)?,
 			View::Term => self.term.update(d)?,
 		}
+
+		self.log.extend(mem::replace(self.browser.log(), vec![]));
+
+		for b in self.buffers.values_mut() {
+			if let Some(log) = b.log() {
+				self.log.extend(mem::replace(log, vec![]));
+			}
+		}
+
+		while self.log.len() > LOG_SIZE {
+			self.log.pop_front();
+		}
+
+		self.log.retain(|l| l.age() < Duration::from_secs_f32(LOG_LIFE));
 
 		return Ok(());
 
@@ -633,7 +714,7 @@ fn display_path(path: impl AsRef<Path>) -> String {
 fn main() {
 
 	if let Err(e) = launcher()
-		.title("fopen")
+		.title("space55")
 		.size(960, 640)
 		.resizable(true)
 		.run::<App>() {

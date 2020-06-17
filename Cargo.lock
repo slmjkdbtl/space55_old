@@ -613,21 +613,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fopen"
-version = "0.0.0"
-dependencies = [
- "dirs-next",
- "dirty",
- "git2",
- "id3",
- "once_cell",
- "rayon",
- "regex",
- "serde",
- "syntect",
-]
-
-[[package]]
 name = "foreign-types"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -969,9 +954,9 @@ dependencies = [
 
 [[package]]
 name = "itoa"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8b7a7c0c47db5545ed3fef7468ee7bb5b74691498139e4b3f6a20685dc6dd8e"
+checksum = "dc6f3ad7b9d11a0c00842ff8de1b60ee58661048eb8049ed33c73594f359d7e6"
 
 [[package]]
 name = "jni-sys"
@@ -1920,6 +1905,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "space55"
+version = "0.0.0"
+dependencies = [
+ "dirs-next",
+ "dirty",
+ "git2",
+ "id3",
+ "once_cell",
+ "rayon",
+ "regex",
+ "serde",
+ "syntect",
+]
+
+[[package]]
 name = "stb_truetype"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2079,11 +2079,11 @@ dependencies = [
 
 [[package]]
 name = "unicode-normalization"
-version = "0.1.12"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5479532badd04e128284890390c1e876ef7a993d0570b3597ae43dfa1d59afa4"
+checksum = "6fb19cf769fa8c6a80a162df694621ebeb4dafb606470b2b2fce0be40a98a977"
 dependencies = [
- "smallvec",
+ "tinyvec",
 ]
 
 [[package]]

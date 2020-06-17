@@ -1,6 +1,6 @@
 # wengwengweng
 
-name := "fopen"
+name := "space55"
 version := "0.0.0"
 
 check:
@@ -14,13 +14,15 @@ build:
 	cargo build --release
 
 macos: build
+	sips -s format icns icon.png --out icon.icns
 	rm -rf dist/{{name}}.app
 	rm -rf dist/{{name}}_v{{version}}_mac.tar.gz
 	upx target/release/{{name}} -o {{name}}
-	packapp {{name}} --name {{name}} -o dist/{{name}}.app
+	packapp {{name}} --name {{name}} --icon icon.icns -o dist/{{name}}.app
 	cd dist; \
 		zip -r -9 {{name}}_v{{version}}_mac.zip {{name}}.app
 	rm {{name}}
+	rm icon.icns
 
 web:
 	cargo build \

@@ -1,11 +1,11 @@
 # wengwengweng
 
 [package]
-name = "fopen"
+name = "space55"
 version = "0.0.0"
 authors = ["tga <tga@enemyspy.xyz>"]
 edition = "2018"
-default-run = "fopen"
+default-run = "space55"
 
 [profile.release]
 panic = "abort"

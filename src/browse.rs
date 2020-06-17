@@ -3,7 +3,7 @@
 use std::ffi::OsStr;
 use std::path::Path;
 use std::path::PathBuf;
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use crate::*;
 
@@ -11,6 +11,14 @@ const VSPACE: f32 = 5.0;
 const HSPACE: f32 = 6.0;
 const FONT_SIZE: f32 = 12.0;
 const LINE_HEIGHT: f32 = FONT_SIZE + VSPACE * 2.0;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum FileStatus {
+	Modified,
+	New,
+	Renamed,
+	Ignored,
+}
 
 pub struct FileBrowser {
 	path: PathBuf,
@@ -21,7 +29,9 @@ pub struct FileBrowser {
 	scroll_remainder: f32,
 	view_size: Option<(f32, f32)>,
 	repo: Option<git2::Repository>,
-	modified: HashSet<PathBuf>,
+	file_status: HashMap<PathBuf, FileStatus>,
+	log: Vec<Msg>,
+	search_pattern: Option<regex::Regex>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -57,13 +67,19 @@ impl FileBrowser {
 			scroll_remainder: 0.0,
 			view_size: None,
 			repo: None,
-			modified: hset![],
+			file_status: hmap![],
+			log: vec![],
+			search_pattern: None,
 		};
 
 		fbrowse.cd(path);
 
 		return Ok(fbrowse);
 
+	}
+
+	pub fn log(&mut self) -> &mut Vec<Msg> {
+		return &mut self.log;
 	}
 
 	pub fn path(&self) -> &PathBuf {
@@ -76,6 +92,56 @@ impl FileBrowser {
 
 	pub fn set_view_size(&mut self, w: f32, h: f32) {
 		self.view_size = Some((w, h));
+	}
+
+	pub fn mkdir(&self, name: &str) -> Result<()> {
+		std::fs::create_dir(self.path.join(name))
+			.map_err(|_| format!("failed to create dir {}", name))?;
+		return Ok(());
+	}
+
+	pub fn search_backwards(&mut self) {
+
+		let pat = match &self.search_pattern {
+			Some(pat) => pat,
+			None => return,
+		};
+
+		let pos = match self.cursor {
+			Cursor::Up => 0,
+			Cursor::Entry(i) => i,
+		};
+
+		for (i, path) in self.entries.iter().enumerate().rev().skip(self.entries.len() - pos) {
+			if let Some(fname) = path.file_name().and_then(OsStr::to_str) {
+				if pat.is_match(fname) {
+					self.cursor = Cursor::Entry(i);
+				}
+			}
+		}
+
+	}
+
+	pub fn search_forward(&mut self) {
+
+		let pat = match &self.search_pattern {
+			Some(pat) => pat,
+			None => return,
+		};
+
+		let pos = match self.cursor {
+			Cursor::Up => 0,
+			Cursor::Entry(i) => i,
+		};
+
+		for (i, path) in self.entries.iter().enumerate().skip(pos) {
+			if let Some(fname) = path.file_name().and_then(OsStr::to_str) {
+				if pat.is_match(fname) {
+					self.cursor = Cursor::Entry(i);
+				}
+			}
+		}
+
 	}
 
 	pub fn refresh(&mut self) {
@@ -124,34 +190,112 @@ impl FileBrowser {
 		};
 
 		self.repo = git2::Repository::discover(&self.path).ok();
-		self.modified.clear();
+		self.file_status.clear();
 
 		if let Some(repo) = &self.repo {
+
 			if let Some(git_path) = repo.path().parent() {
+
 				if let Ok(statuses) = repo.statuses(None) {
+
 					for s in statuses.iter() {
-						if let Some(path) = s.path() {
-							let status = s.status();
-							if
-								status == git2::Status::WT_MODIFIED
-								|| status == git2::Status::WT_NEW
-								|| status == git2::Status::WT_RENAMED
-							{
-								self.modified.insert(git_path.join(PathBuf::from(path)));
+
+						if let Some(fpath) = s.path() {
+
+							let fpath = git_path.join(fpath);
+
+							let status = match s.status() {
+								git2::Status::WT_MODIFIED => Some(FileStatus::Modified),
+								git2::Status::WT_NEW => Some(FileStatus::New),
+								git2::Status::WT_RENAMED => Some(FileStatus::Renamed),
+								git2::Status::IGNORED => Some(FileStatus::Ignored),
+								_ => None,
+							};
+
+							if let Some(s) = status {
+								self.file_status.insert(fpath, s);
 							}
+
 						}
+
 					}
+
 				}
+
 			}
+
 		}
 
 	}
 
-	pub fn cd(&mut self, path: impl AsRef<Path>) {
+	pub fn git_add_all(&mut self) -> Result<()> {
 
-		self.path = path.as_ref().to_owned();
+		let repo = self.repo
+			.as_ref()
+			.ok_or_else(|| format!("not a git repo"))?;
+
+		let mut index = repo
+			.index()
+			.map_err(|_| format!("failed to get git index"))?;
+
+		index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)
+			.map_err(|_| format!("failed to git add"))?;
+		index.write()
+			.map_err(|_| format!("failed to write index"))?;
+
 		self.refresh();
 
+		return Ok(());
+
+	}
+
+	pub fn git_commit(&self, msg: &str) -> Result<()> {
+
+		let repo = self.repo
+			.as_ref()
+			.ok_or_else(|| format!("not a git repo"))?;
+
+		let sig = repo
+			.signature()
+			.map_err(|_| format!("failed to get default signature"))?;
+
+		let mut index = repo
+			.index()
+			.map_err(|_| format!("failed to get git index"))?;
+
+		let tree_id = index
+			.write_tree()
+			.map_err(|_| format!("failed to write index tree"))?;
+
+		let tree = repo
+			.find_tree(tree_id)
+			.map_err(|_| format!("failed to get tree"))?;
+
+        let head_id = repo
+			.refname_to_id("HEAD")
+			.map_err(|_| format!("failed to get head"))?;
+
+        let parent = repo
+			.find_commit(head_id)
+			.map_err(|_| format!("failed to get head"))?;
+
+		repo.commit(
+			Some("HEAD"),
+			&sig,
+			&sig,
+			msg,
+			&tree,
+			&[&parent],
+		)
+			.map_err(|_| format!("failed to commit"))?;
+
+		return Ok(());
+
+	}
+
+	pub fn cd(&mut self, path: impl AsRef<Path>) {
+		self.path = path.as_ref().to_owned();
+		self.refresh();
 	}
 
 	pub fn move_up(&mut self) {
@@ -354,11 +498,13 @@ impl FileBrowser {
 					let t1 = format!("{}{}", fname, suffix);
 
 					let mut chunks = vec![
-						shapes::textc(&t1, color)
+						shapes::TextChunk::colored(&t1, color)
 					];
 
-					if self.modified.contains(path) {
-						chunks.push(shapes::textc(" [*]", rgba!(1, 1, 0.5, 1)));
+					if let Some(s) = self.file_status.get(path) {
+						if s != &FileStatus::Ignored {
+							chunks.push(shapes::TextChunk::colored(" [*]", rgba!(1, 1, 0.5, 1)));
+						}
 					};
 
 					gfx.draw_t(

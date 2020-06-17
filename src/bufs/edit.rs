@@ -346,6 +346,8 @@ impl TextEditor {
 	// TODO: support other comments
 	fn toggle_comment(&mut self) {
 
+		self.buf.push_undo();
+
 		let ln = self.buf.cursor().line;
 
 		if let Some(line) = self.buf.get_line_at(ln) {
@@ -398,6 +400,10 @@ impl Buffer for TextEditor {
 				match self.mode {
 					Mode::Normal => {
 						match k {
+							Key::Enter if kmods.alt => {
+								self.buf.insert_line();
+								self.highlight_all();
+							}
 							Key::Enter => self.mode = Mode::Insert,
 							Key::W => self.save()?,
 							Key::Backslash => {
@@ -706,7 +712,7 @@ impl Buffer for TextEditor {
 				let chunks = chunks
 					.iter()
 					.map(|c| {
-						return shapes::textc(&c.text, c.color);
+						return shapes::TextChunk::colored(&c.text, c.color);
 					})
 					.collect::<Vec<shapes::TextChunk>>();
 
@@ -818,7 +824,7 @@ impl Buffer for TextEditor {
 						.t2(vec2!(0, -vh + FONT_SIZE + LINE_SPACING * 2.0))
 						.t2(pos)
 						,
-					&shapes::rect(vec2!(0), vec2!(12.0, -FONT_SIZE)),
+					&shapes::rect(vec2!(0), vec2!(12.0, FONT_SIZE)),
 				)?;
 			}
 
