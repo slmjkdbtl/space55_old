@@ -8,7 +8,7 @@ use crate::*;
 pub struct ModelViewer {
 	shader: gfx::Shader<()>,
 	path: PathBuf,
-	task: task::Task<Result<ModelData>>,
+	task: task::Loader<Result<ModelData>>,
 	model: Option<Model>,
 	rot: Vec2,
 	pos: Vec2,
@@ -26,7 +26,7 @@ impl ModelViewer {
 
 		return Ok(Self {
 			path: path,
-			task: task::Task::exec(move || {
+			task: task::Loader::new(move || {
 				return Model::load_file(path2);
 			})?,
 			model: None,
