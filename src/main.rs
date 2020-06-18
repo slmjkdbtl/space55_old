@@ -2,13 +2,15 @@
 
 mod browse;
 mod bufs;
-mod save;
 mod term;
+mod session;
+mod conf;
 
 use browse::*;
 use bufs::*;
-use save::*;
 use term::*;
+use session::*;
+use conf::*;
 
 use std::mem;
 use std::path::Path;
@@ -26,9 +28,6 @@ use gfx::*;
 use input::*;
 
 type ID = usize;
-
-const PROJ: &str = "space55";
-const ENTRY: &str = "save";
 
 const SBAR_FONT_SIZE: f32 = 12.0;
 const SBAR_COLOR: Color = rgba!(0, 0, 1, 1);
@@ -161,7 +160,7 @@ impl App {
 			View::Term => {
 				return self.browser.path();
 			},
-		}
+		};
 	}
 
 	fn cur_buf(&self) -> Option<&Box<dyn Buffer>> {
@@ -195,9 +194,8 @@ impl App {
 
 	fn get_buf_n(&self, id: ID) -> Option<usize> {
 		return self.buffers
-			.iter()
-			.enumerate()
-			.position(|(i, (idd, buf))| *idd == id);
+			.keys()
+			.position(|id2| *id2 == id);
 	}
 
 	fn to_prev_buf(&mut self) {
@@ -343,10 +341,6 @@ impl App {
 
 	}
 
-	fn add_bookmark(&mut self, slot: ID, path: impl AsRef<Path>) {
-		self.bookmarks.insert(slot, path.as_ref().to_path_buf());
-	}
-
 	fn to_bookmark(&mut self, n: ID) {
 		if let Some(path) = self.bookmarks.get(&n) {
 			self.browser.cd(&path.clone());
@@ -358,24 +352,23 @@ impl App {
 
 impl State for App {
 
-	fn init(_: &mut Ctx) -> Result<Self> {
+	fn init(d: &mut Ctx) -> Result<Self> {
 
 		let path = std::env::current_dir()
 			.map_err(|_| format!("failed to get current path"))?;
-		let data = data::load::<SaveData>(PROJ, ENTRY);
 
-		if data.is_err() {
-			data::save(PROJ, ENTRY, SaveData {
+		let session = Session::load().unwrap_or_else(|_| {
+			return Session {
 				path: path.clone(),
-				bookmarks: bmap![],
-			})?;
-		}
+				bufs: vec![],
+			};
+		});
 
-		let data = data::load::<SaveData>(PROJ, ENTRY)?;
+		let conf = Conf::load().unwrap_or_default();
 
-		return Ok(Self {
-			bookmarks: data.bookmarks,
-			browser: FileBrowser::new(data.path)?,
+		let mut app = Self {
+			bookmarks: conf.bookmarks,
+			browser: FileBrowser::new(session.path)?,
 			term: Term::new(),
 			view: View::Browser,
 			buffers: bmap![],
@@ -383,7 +376,15 @@ impl State for App {
 			cur_buf: None,
 			bufbar_offset: 0.0,
 			log: vecd![],
-		});
+		};
+
+		for path in session.bufs {
+			app.open(d, path)?;
+		}
+
+		app.view = View::Browser;
+
+		return Ok(app);
 
 	}
 
@@ -443,16 +444,6 @@ impl State for App {
 					Key::Key9 if kmods.alt => self.to_buf_n(8),
 					Key::Q if kmods.alt => self.to_prev_buf(),
 					Key::E if kmods.alt => self.to_next_buf(),
-					Key::F1 if kmods.alt => self.add_bookmark(0, &path),
-					Key::F2 if kmods.alt => self.add_bookmark(1, &path),
-					Key::F3 if kmods.alt => self.add_bookmark(2, &path),
-					Key::F4 if kmods.alt => self.add_bookmark(3, &path),
-					Key::F5 if kmods.alt => self.add_bookmark(4, &path),
-					Key::F6 if kmods.alt => self.add_bookmark(5, &path),
-					Key::F7 if kmods.alt => self.add_bookmark(6, &path),
-					Key::F8 if kmods.alt => self.add_bookmark(7, &path),
-					Key::F9 if kmods.alt => self.add_bookmark(8, &path),
-					Key::F10 if kmods.alt => self.add_bookmark(9, &path),
 					Key::F1 => self.to_bookmark(0),
 					Key::F2 => self.to_bookmark(1),
 					Key::F3 => self.to_bookmark(2),
@@ -675,10 +666,16 @@ impl State for App {
 
 	fn quit(&mut self, _: &mut Ctx) -> Result<()> {
 
-		data::save(PROJ, ENTRY, SaveData {
-			path: self.browser.path().to_path_buf(),
-			bookmarks: self.bookmarks.clone(),
-		})?;
+		Session {
+			path: self.browser
+				.path()
+				.to_path_buf(),
+			bufs: self.buffers
+				.values()
+				.map(|b| b.path().map(Path::to_path_buf))
+				.flatten()
+				.collect(),
+		}.save()?;
 
 		return Ok(());
 

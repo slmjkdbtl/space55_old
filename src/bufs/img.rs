@@ -7,7 +7,7 @@ use crate::*;
 
 pub struct ImageViewer {
 	path: PathBuf,
-	task: task::Loader<Result<Vec<u8>>>,
+	task: task::Task<Result<Vec<u8>>>,
 	tex: Option<gfx::Texture>,
 	view_size: Option<(f32, f32)>,
 	pos: Vec2,
@@ -22,7 +22,7 @@ impl ImageViewer {
 		let path2 = path.clone();
 
 		return Ok(Self {
-			task: task::Loader::new(move || {
+			task: task::Task::new(move || {
 				return fs::read(path2);
 			})?,
 			path: path,
