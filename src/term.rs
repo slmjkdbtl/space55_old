@@ -3,7 +3,7 @@
 use std::sync::mpsc;
 use std::thread;
 use crate::*;
-use kit::textedit::Input;
+use kit::input::*;
 
 pub struct Term {
 	view_size: Option<(f32, f32)>,

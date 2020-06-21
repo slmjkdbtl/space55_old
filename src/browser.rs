@@ -4,6 +4,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::collections::HashMap;
+use kit::input::*;
 
 use crate::*;
 
@@ -32,6 +33,8 @@ pub struct FileBrowser {
 	file_status: HashMap<PathBuf, FileStatus>,
 	log: Vec<Msg>,
 	search_pattern: Option<regex::Regex>,
+	prompting: bool,
+	input: Input,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -70,6 +73,8 @@ impl FileBrowser {
 			file_status: hmap![],
 			log: vec![],
 			search_pattern: None,
+			prompting: false,
+			input: Input::new(),
 		};
 
 		fbrowse.cd(path);
@@ -100,75 +105,35 @@ impl FileBrowser {
 		return Ok(());
 	}
 
-	pub fn search_backwards(&mut self) {
+	pub fn refresh(&mut self) -> Result<()> {
 
-		let pat = match &self.search_pattern {
-			Some(pat) => pat,
-			None => return,
-		};
-
-		let pos = match self.cursor {
-			Cursor::Up => 0,
-			Cursor::Entry(i) => i,
-		};
-
-		for (i, path) in self.entries.iter().enumerate().rev().skip(self.entries.len() - pos) {
-			if let Some(fname) = path.file_name().and_then(OsStr::to_str) {
-				if pat.is_match(fname) {
-					self.cursor = Cursor::Entry(i);
-				}
-			}
+		if !self.path.exists() {
+			return Err(format!("path doesn't exist"));
 		}
-
-	}
-
-	pub fn search_forward(&mut self) {
-
-		let pat = match &self.search_pattern {
-			Some(pat) => pat,
-			None => return,
-		};
-
-		let pos = match self.cursor {
-			Cursor::Up => 0,
-			Cursor::Entry(i) => i,
-		};
-
-		for (i, path) in self.entries.iter().enumerate().skip(pos) {
-			if let Some(fname) = path.file_name().and_then(OsStr::to_str) {
-				if pat.is_match(fname) {
-					self.cursor = Cursor::Entry(i);
-				}
-			}
-		}
-
-	}
-
-	pub fn refresh(&mut self) {
 
 		let mut dirs = vec![];
 		let mut files = vec![];
 
-		if let Ok(entries) = self.path.read_dir() {
+		let entries = self.path
+			.read_dir()
+			.map_err(|_| format!("failed to read dir"))?;
 
-			for e in entries {
+		for e in entries {
 
-				if let Ok(e) = e {
+			if let Ok(e) = e {
 
-					let path = e.path();
+				let path = e.path();
 
-					if self.hide_hidden {
-						if is_hidden(&path) {
-							continue;
-						}
+				if self.hide_hidden {
+					if is_hidden(&path) {
+						continue;
 					}
+				}
 
-					if path.is_dir() {
-						dirs.push(path);
-					} else {
-						files.push(path);
-					}
-
+				if path.is_dir() {
+					dirs.push(path);
+				} else {
+					files.push(path);
 				}
 
 			}
@@ -225,6 +190,8 @@ impl FileBrowser {
 			}
 
 		}
+
+		return Ok(());
 
 	}
 
@@ -293,9 +260,10 @@ impl FileBrowser {
 
 	}
 
-	pub fn cd(&mut self, path: impl AsRef<Path>) {
+	pub fn cd(&mut self, path: impl AsRef<Path>) -> Result<()> {
 		self.path = path.as_ref().to_owned();
-		self.refresh();
+		self.refresh()?;
+		return Ok(());
 	}
 
 	pub fn move_up(&mut self) {
@@ -386,7 +354,13 @@ impl FileBrowser {
 			KeyPress(k) => {
 				match *k {
 					Key::Backspace => self.back(),
-					Key::R => self.refresh(),
+					Key::Enter => {
+						if self.prompting {
+							self.prompting = false;
+							self.input.clear();
+						}
+					},
+					Key::R => self.refresh()?,
 					_ => {},
 				}
 			},
@@ -413,6 +387,17 @@ impl FileBrowser {
 					}
 				}
 
+			},
+
+			CharInput(ch) => {
+				match ch {
+					'?' => {
+						if !self.prompting {
+							self.prompting = true;
+						}
+					},
+					_ => {},
+				}
 			},
 
 			_ => {},

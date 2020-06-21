@@ -1,12 +1,12 @@
 // wengwengweng
 
-mod browse;
+mod browser;
 mod bufs;
 mod term;
 mod session;
 mod conf;
 
-use browse::*;
+use browser::*;
 use bufs::*;
 use term::*;
 use session::*;
@@ -140,7 +140,7 @@ struct App {
 	last_buf_id: ID,
 	cur_buf: Option<ID>,
 	bufbar_offset: f32,
-	bookmarks: BTreeMap<ID, PathBuf>,
+	bookmarks: Vec<PathBuf>,
 	log: VecDeque<Msg>,
 }
 
@@ -341,11 +341,17 @@ impl App {
 
 	}
 
-	fn to_bookmark(&mut self, n: ID) {
-		if let Some(path) = self.bookmarks.get(&n) {
-			self.browser.cd(&path.clone());
-			self.view = View::Browser;
-		}
+	fn to_bookmark(&mut self, n: usize) -> Result<()> {
+
+		let path = self.bookmarks
+			.get(n)
+			.ok_or_else(|| format!("bookmark {} doesn exist", n))?;
+
+		self.browser.cd(&path)?;
+		self.view = View::Browser;
+
+		return Ok(());
+
 	}
 
 }
@@ -354,20 +360,26 @@ impl State for App {
 
 	fn init(d: &mut Ctx) -> Result<Self> {
 
-		let path = std::env::current_dir()
+		let cur_path = std::env::current_dir()
 			.map_err(|_| format!("failed to get current path"))?;
 
 		let session = Session::load().unwrap_or_else(|_| {
 			return Session {
-				path: path.clone(),
+				path: cur_path,
 				bufs: vec![],
 			};
 		});
 
 		let conf = Conf::load().unwrap_or_default();
 
+		let bookmarks = conf.bookmarks
+			.unwrap_or_else(|| vec![])
+			.iter()
+			.map(|b| expand_path(b))
+			.collect();
+
 		let mut app = Self {
-			bookmarks: conf.bookmarks,
+			bookmarks: bookmarks,
 			browser: FileBrowser::new(session.path)?,
 			term: Term::new(),
 			view: View::Browser,
@@ -428,8 +440,6 @@ impl State for App {
 			},
 		}
 
-		let path = self.browser.path().to_path_buf();
-
 		match e {
 			Event::KeyPress(k) => {
 				match k {
@@ -444,16 +454,16 @@ impl State for App {
 					Key::Key9 if kmods.alt => self.to_buf_n(8),
 					Key::Q if kmods.alt => self.to_prev_buf(),
 					Key::E if kmods.alt => self.to_next_buf(),
-					Key::F1 => self.to_bookmark(0),
-					Key::F2 => self.to_bookmark(1),
-					Key::F3 => self.to_bookmark(2),
-					Key::F4 => self.to_bookmark(3),
-					Key::F5 => self.to_bookmark(4),
-					Key::F6 => self.to_bookmark(5),
-					Key::F7 => self.to_bookmark(6),
-					Key::F8 => self.to_bookmark(7),
-					Key::F9 => self.to_bookmark(8),
-					Key::F10 => self.to_bookmark(9),
+					Key::F1 => self.to_bookmark(0)?,
+					Key::F2 => self.to_bookmark(1)?,
+					Key::F3 => self.to_bookmark(2)?,
+					Key::F4 => self.to_bookmark(3)?,
+					Key::F5 => self.to_bookmark(4)?,
+					Key::F6 => self.to_bookmark(5)?,
+					Key::F7 => self.to_bookmark(6)?,
+					Key::F8 => self.to_bookmark(7)?,
+					Key::F9 => self.to_bookmark(8)?,
+					Key::F10 => self.to_bookmark(9)?,
 					Key::Q if kmods.meta => d.window.quit(),
 					Key::F if kmods.meta => d.window.toggle_fullscreen(),
 // 					Key::Backquote => {
@@ -470,7 +480,7 @@ impl State for App {
 									if buf.busy() {
 										View::Buffer
 									} else {
-										self.browser.refresh();
+										self.browser.refresh()?;
 										if let Some(path) = path {
 											self.browser.select(path);
 										}
@@ -666,7 +676,7 @@ impl State for App {
 
 	fn quit(&mut self, _: &mut Ctx) -> Result<()> {
 
-		Session {
+		let session = Session {
 			path: self.browser
 				.path()
 				.to_path_buf(),
@@ -675,7 +685,9 @@ impl State for App {
 				.map(|b| b.path().map(Path::to_path_buf))
 				.flatten()
 				.collect(),
-		}.save()?;
+		};
+
+		session.save()?;
 
 		return Ok(());
 
@@ -705,6 +717,18 @@ fn display_path(path: impl AsRef<Path>) -> String {
 	}
 
 	return dpath;
+
+}
+
+fn expand_path(path: &str) -> PathBuf {
+
+	if path.starts_with("~/") {
+		if let Some(home_dir) = dirs_next::home_dir() {
+			return PathBuf::from(&format!("{}/{}", home_dir.display(), &path[2..]))
+		}
+	}
+
+	return PathBuf::from(path);
 
 }
 

@@ -9,7 +9,7 @@ use crate::*;
 const PROJ: &str = "space55";
 const ENTRY: &str = "session";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Session {
 	pub path: PathBuf,
 	pub bufs: Vec<PathBuf>,
