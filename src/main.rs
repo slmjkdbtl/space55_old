@@ -511,6 +511,9 @@ impl State for App {
 
 	fn update(&mut self, d: &mut Ctx) -> Result<()> {
 
+		let gw = d.gfx.width() as f32;
+		let gh = d.gfx.height() as f32;
+
 		match self.view {
 			View::Buffer => {
 				if let Some(buf) = self.cur_buf_mut() {
@@ -535,14 +538,21 @@ impl State for App {
 
 		self.log.retain(|l| l.age() < Duration::from_secs_f32(LOG_LIFE));
 
+		let vh = gh - SBAR_HEIGHT - if self.buffers.is_empty() { 0.0 } else { BUFBAR_HEIGHT };
+
+		self.browser.set_view_size(gw, vh);
+		self.term.set_view_size(gw, vh);
+
+		if let Some(buf) = self.cur_buf_mut() {
+			buf.set_view_size(gw, vh);
+		}
+
 		return Ok(());
 
 	}
 
-	fn draw(&mut self, d: &mut Ctx) -> Result<()> {
+	fn draw(&self, d: &mut Ctx) -> Result<()> {
 
-		let gw = d.gfx.width() as f32;
-		let gh = d.gfx.height() as f32;
 		let top_left = d.gfx.coord(Origin::TopLeft);
 		let top_right = d.gfx.coord(Origin::TopRight);
 		let bot_right = d.gfx.coord(Origin::BottomRight);
@@ -649,19 +659,14 @@ impl State for App {
 
 			match self.view {
 				View::Buffer => {
-					if let Some(id) = self.cur_buf {
-						if let Some(buf) = self.buffers.get_mut(&id) {
-							buf.set_view_size(gw, gh - y);
-							buf.draw(gfx)?;
-						}
+					if let Some(buf) = self.cur_buf() {
+						buf.draw(gfx)?;
 					}
 				},
 				View::Browser => {
-					self.browser.set_view_size(gw, gh - y);
 					self.browser.draw(gfx)?;
 				},
 				View::Term => {
-					self.term.set_view_size(gw, gh - y);
 					self.term.draw(gfx)?;
 				},
 			}

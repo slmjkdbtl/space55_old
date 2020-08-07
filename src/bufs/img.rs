@@ -127,11 +127,3 @@ impl Buffer for ImageViewer {
 
 }
 
-impl Drop for ImageViewer {
-	fn drop(&mut self) {
-		if let Some(tex) = self.tex.take() {
-			tex.free();
-		}
-	}
-}
-

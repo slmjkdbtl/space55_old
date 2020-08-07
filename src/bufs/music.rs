@@ -150,9 +150,6 @@ impl Drop for MusicPlayer {
 		if let Some(track) = self.track.take() {
 			track.detach();
 		}
-		if let Some(cover) = self.cover.take() {
-			cover.free();
-		}
 	}
 }
 

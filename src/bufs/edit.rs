@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::collections::HashMap;
 
 use crate::*;
-use kit::input::*;
+use kit::textinput::*;
 
 use rayon::prelude::*;
 use once_cell::sync::Lazy;
@@ -72,16 +72,7 @@ impl Cursor {
 
 impl fmt::Display for Cursor {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		return write!(f, "({}, {})", self.line, self.col);
-	}
-}
-
-impl Default for Cursor {
-	fn default() -> Self {
-		return Self {
-			line: 1,
-			col: 1,
-		};
+		return write!(f, "{}:{}", self.line, self.col);
 	}
 }
 
@@ -127,7 +118,7 @@ pub struct TextEditor {
 	undo_stack: Vec<State>,
 	redo_stack: Vec<State>,
 	path: PathBuf,
-	render_lines: Vec<RenderedLine>,
+	rendered_lines: Vec<RenderedLine>,
 	mode: Mode,
 	scroll_off: f32,
 	scroll_remainder: f32,
@@ -181,11 +172,15 @@ impl TextEditor {
 
 		let path = path.as_ref();
 
-		let lines = std::fs::read_to_string(&path)
-			.unwrap_or(String::new())
+		let content = std::fs::read_to_string(&path)
+			.unwrap_or(String::new());
+
+		let mut lines = content
 			.split('\n')
 			.map(|s| s.to_string())
 			.collect::<Vec<String>>();
+
+		lines.pop();
 
 		let syntax = SYNTAX_SET
 			.find_syntax_for_file(path)
@@ -206,7 +201,7 @@ impl TextEditor {
 			_ => None
 		};
 
-		let render_lines = if let Some(ctx) = &mut hi_ctx {
+		let rendered_lines = if let Some(ctx) = &mut hi_ctx {
 
 			let mut rlines = Vec::with_capacity(lines.len());
 			let highlighter = Highlighter::new(&ctx.theme);
@@ -246,12 +241,12 @@ impl TextEditor {
 
 		return Self {
 			lines: lines,
-			cursor: Cursor::default(),
+			cursor: Cursor::new(1, 1),
 			undo_stack: vec![],
 			redo_stack: vec![],
 			modified: false,
 			path: path.to_path_buf(),
-			render_lines: render_lines,
+			rendered_lines: rendered_lines,
 			mode: Mode::Normal,
 			scroll_off: 0.0,
 			scroll_remainder: 0.0,
@@ -270,7 +265,10 @@ impl TextEditor {
 	}
 
 	fn get_line_at(&self, ln: Line) -> Option<&String> {
-		return self.lines.get(ln as usize - 1);
+		if ln > 0 {
+			return self.lines.get(ln as usize - 1);
+		}
+		return None;
 	}
 
 	fn cur_line(&self) -> Option<&String> {
@@ -281,6 +279,7 @@ impl TextEditor {
 
 		if self.get_line_at(ln).is_some() {
 
+			// TODO: clean logic
 			if !self.modified {
 				self.push_undo();
 				self.redo_stack.clear();
@@ -361,7 +360,7 @@ impl TextEditor {
 			self.lines.remove(ln as usize - 1);
 
 			if self.lines.is_empty() {
-				self.lines = vec![String::from("")];
+				self.lines = vec![String::new()];
 			}
 
 		}
@@ -528,20 +527,18 @@ impl TextEditor {
 
 	}
 
-	fn clamp_cursor(&self, pos: Cursor) -> Cursor {
+	fn clamp_cursor(&self, mut pos: Cursor) -> Cursor {
 
 		if pos.col < 1 {
-			return self.clamp_cursor(Cursor {
-				col: 1,
-				.. pos
-			});
+			pos.col = 1;
 		}
 
 		if pos.line < 1 {
-			return self.clamp_cursor(Cursor {
-				line: 1,
-				.. pos
-			});
+			pos.line = 1;
+		}
+
+		if pos.line > self.lines.len() as i32 {
+			pos.line = self.lines.len() as i32;
 		}
 
 		if let Some(line) = self.get_line_at(pos.line) {
@@ -549,23 +546,9 @@ impl TextEditor {
 			let len = line.len() as Col + 1;
 
 			if pos.col > len {
-
-				return self.clamp_cursor(Cursor {
-					col: len,
-					.. pos
-				});
-
+				pos.col = len;
 			}
 
-		}
-
-		let lines = self.lines.len() as Line;
-
-		if pos.line > lines && lines > 0 {
-			return self.clamp_cursor(Cursor {
-				line: lines,
-				.. pos
-			});
 		}
 
 		return pos;
@@ -813,7 +796,7 @@ impl TextEditor {
 
 	fn highlight_all(&mut self) {
 
-		self.render_lines = if let Some(ctx) = &mut self.highlight_ctx {
+		self.rendered_lines = if let Some(ctx) = &mut self.highlight_ctx {
 
 			let mut rlines = Vec::with_capacity(self.lines.len());
 			let highlighter = Highlighter::new(&ctx.theme);
@@ -956,9 +939,6 @@ impl Buffer for TextEditor {
 
 	fn event(&mut self, d: &mut Ctx, e: &input::Event) -> Result<()> {
 
-		let (vw, vh) = self.view_size.unwrap_or((d.gfx.width() as f32, d.gfx.height() as f32));
-		let l1 = f32::floor(self.scroll_off / LINE_HEIGHT) as usize;
-		let l2 = f32::ceil((self.scroll_off + vh) / LINE_HEIGHT) as usize;
 		let kmods = d.window.key_mods();
 
 		match e {
@@ -1275,7 +1255,7 @@ impl Buffer for TextEditor {
 
 		for i in l1..l2 {
 
-			if let Some(chunks) = self.render_lines.get(i) {
+			if let Some(chunks) = self.rendered_lines.get(i) {
 
 				let chunks = chunks
 					.iter()
@@ -1367,6 +1347,16 @@ impl Buffer for TextEditor {
 				,
 			&shapes::text(&format!("{}", m.to_uppercase()))
 				.align(Origin::BottomLeft)
+				.size(FONT_SIZE)
+				.color(rgba!(0, 0, 0, 1))
+		)?;
+
+		gfx.draw_t(
+			mat4!()
+				.t2(vec2!(vw - LINE_SPACING, -vh + LINE_SPACING))
+				,
+			&shapes::text(&format!("{}", self.cursor))
+				.align(Origin::BottomRight)
 				.size(FONT_SIZE)
 				.color(rgba!(0, 0, 0, 1))
 		)?;

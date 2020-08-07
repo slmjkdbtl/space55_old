@@ -18,7 +18,11 @@ macos: build
 	rm -rf dist/{{name}}.app
 	rm -rf dist/{{name}}_v{{version}}_mac.tar.gz
 	upx target/release/{{name}} -o {{name}}
-	packapp {{name}} --name {{name}} --icon icon.icns -o dist/{{name}}.app
+	packapp {{name}} \
+		--name {{name}} \
+		--icon icon.icns \
+		--high-res \
+		--output dist/{{name}}.app
 	cd dist; \
 		zip -r -9 {{name}}_v{{version}}_mac.zip {{name}}.app
 	rm {{name}}

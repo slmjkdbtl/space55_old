@@ -4,7 +4,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::collections::HashMap;
-use kit::input::*;
+use kit::textinput::*;
 
 use crate::*;
 
